@@ -4,6 +4,7 @@ import tempfile
 import base64
 import os
 import sys
+import csv
 from pathlib import Path
 
 MODEL_DIR = os.environ.get("MODEL_DIR", "/app/HunyuanVideo-Avatar")
@@ -15,11 +16,11 @@ def setup_model():
     if INITIALIZED:
         return True
 
-    model_path = Path(MODEL_DIR)
-
     import shutil
     total, used, free = shutil.disk_usage("/")
     print(f"Disk space: {free // (1024**3)}GB free of {total // (1024**3)}GB total")
+
+    model_path = Path(MODEL_DIR)
 
     if not model_path.exists():
         print("First run: cloning HunyuanVideo-Avatar...")
@@ -38,14 +39,18 @@ def setup_model():
             sys.executable, "-m", "pip", "install", "-q", "-r", str(req_file)
         ], capture_output=True, text=True)
         if result.returncode != 0:
-            raise RuntimeError(f"Pip install failed: {result.stderr}")
+            print(f"Pip install warning: {result.stderr}")
 
-    ckpts = model_path / "ckpts"
-    if not ckpts.exists() or not any(ckpts.iterdir()):
-        print("Downloading model weights (this takes a few minutes on first run)...")
+    weights_dir = model_path / "weights" / "ckpts"
+    if not weights_dir.exists() or not any(weights_dir.glob("**/*.pt")):
+        print("Downloading model weights from HuggingFace...")
+        weights_dir.mkdir(parents=True, exist_ok=True)
         result = subprocess.run([
             sys.executable, "-c",
-            f"from huggingface_hub import snapshot_download; snapshot_download('tencent/HunyuanVideo-Avatar', local_dir='{ckpts}')"
+            f"""
+from huggingface_hub import snapshot_download
+snapshot_download('tencent/HunyuanVideo-Avatar', local_dir='{model_path / "weights"}', local_dir_use_symlinks=False)
+"""
         ], capture_output=True, text=True)
         if result.returncode != 0:
             raise RuntimeError(f"Model download failed: {result.stderr}\n{result.stdout}")
@@ -89,22 +94,46 @@ def handler(job):
     audio_path = download_file(audio, ".wav")
 
     output_dir = tempfile.mkdtemp()
-    output_path = os.path.join(output_dir, "output.mp4")
+    csv_path = os.path.join(output_dir, "input.csv")
+
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["audio_path", "image_path"])
+        writer.writerow([audio_path, image_path])
+
+    model_path = Path(MODEL_DIR)
+    weights_path = model_path / "weights" / "ckpts" / "hunyuan-video-t2v-720p" / "transformers" / "mp_rank_00_model_states_fp8.pt"
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(model_path)
+    env["MODEL_BASE"] = str(model_path / "weights")
+    env["DISABLE_SP"] = "1"
 
     cmd = [
-        sys.executable, "inference.py",
-        "--image_path", image_path,
-        "--audio_path", audio_path,
-        "--output_path", output_path,
-        "--mode", mode,
+        sys.executable,
+        str(model_path / "hymm_sp" / "sample_gpu_poor.py"),
+        "--input", csv_path,
+        "--ckpt", str(weights_path),
+        "--sample-n-frames", "129",
+        "--seed", "128",
+        "--image-size", "704",
+        "--cfg-scale", "7.5",
+        "--infer-steps", "50",
+        "--use-deepcache", "1",
+        "--flow-shift-eval-video", "5.0",
+        "--save-path", output_dir,
+        "--use-fp8",
+        "--infer-min",
     ]
 
+    print(f"Running: {' '.join(cmd)}")
     result = subprocess.run(
         cmd,
-        cwd=MODEL_DIR,
+        cwd=str(model_path),
         capture_output=True,
         text=True,
         timeout=600,
+        env=env,
     )
 
     if result.returncode != 0:
@@ -113,13 +142,19 @@ def handler(job):
             "stdout": result.stdout,
         }
 
-    with open(output_path, "rb") as f:
+    output_videos = list(Path(output_dir).glob("**/*.mp4"))
+    if not output_videos:
+        return {
+            "error": "No output video generated",
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }
+
+    with open(output_videos[0], "rb") as f:
         video_b64 = base64.b64encode(f.read()).decode()
 
     os.unlink(image_path)
     os.unlink(audio_path)
-    os.unlink(output_path)
-    os.rmdir(output_dir)
 
     return {
         "video_base64": video_b64,
