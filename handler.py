@@ -17,28 +17,38 @@ def setup_model():
 
     model_path = Path(MODEL_DIR)
 
+    import shutil
+    total, used, free = shutil.disk_usage("/")
+    print(f"Disk space: {free // (1024**3)}GB free of {total // (1024**3)}GB total")
+
     if not model_path.exists():
         print("First run: cloning HunyuanVideo-Avatar...")
-        subprocess.run([
-            "git", "clone",
+        result = subprocess.run([
+            "git", "clone", "--depth", "1",
             "https://github.com/Tencent-Hunyuan/HunyuanVideo-Avatar.git",
             str(model_path)
-        ], check=True)
+        ], capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"Git clone failed: {result.stderr}")
 
     req_file = model_path / "requirements.txt"
     if req_file.exists():
         print("Installing dependencies...")
-        subprocess.run([
+        result = subprocess.run([
             sys.executable, "-m", "pip", "install", "-q", "-r", str(req_file)
-        ], check=True)
+        ], capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"Pip install failed: {result.stderr}")
 
     ckpts = model_path / "ckpts"
     if not ckpts.exists() or not any(ckpts.iterdir()):
         print("Downloading model weights (this takes a few minutes on first run)...")
-        subprocess.run([
+        result = subprocess.run([
             sys.executable, "-c",
             f"from huggingface_hub import snapshot_download; snapshot_download('tencent/HunyuanVideo-Avatar', local_dir='{ckpts}')"
-        ], check=True)
+        ], capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"Model download failed: {result.stderr}\n{result.stdout}")
 
     sys.path.insert(0, str(model_path))
     INITIALIZED = True
