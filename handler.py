@@ -21,7 +21,7 @@ def setup_model():
         print("First run: cloning HunyuanVideo-Avatar...")
         subprocess.run([
             "git", "clone",
-            "https://github.com/Tencent/HunyuanVideo-Avatar.git",
+            "https://github.com/Tencent-Hunyuan/HunyuanVideo-Avatar.git",
             str(model_path)
         ], check=True)
 
