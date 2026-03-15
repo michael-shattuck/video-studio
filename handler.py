@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-MODEL_DIR = os.environ.get("MODEL_DIR", "/runpod-volume/HunyuanVideo-Avatar")
+MODEL_DIR = os.environ.get("MODEL_DIR", "/app/HunyuanVideo-Avatar")
 INITIALIZED = False
 
 
