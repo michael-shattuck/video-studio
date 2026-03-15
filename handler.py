@@ -6,7 +6,44 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, "/app/HunyuanVideo-Avatar")
+MODEL_DIR = os.environ.get("MODEL_DIR", "/runpod-volume/HunyuanVideo-Avatar")
+INITIALIZED = False
+
+
+def setup_model():
+    global INITIALIZED
+    if INITIALIZED:
+        return True
+
+    model_path = Path(MODEL_DIR)
+
+    if not model_path.exists():
+        print("First run: cloning HunyuanVideo-Avatar...")
+        subprocess.run([
+            "git", "clone",
+            "https://github.com/Tencent/HunyuanVideo-Avatar.git",
+            str(model_path)
+        ], check=True)
+
+    req_file = model_path / "requirements.txt"
+    if req_file.exists():
+        print("Installing dependencies...")
+        subprocess.run([
+            sys.executable, "-m", "pip", "install", "-q", "-r", str(req_file)
+        ], check=True)
+
+    ckpts = model_path / "ckpts"
+    if not ckpts.exists() or not any(ckpts.iterdir()):
+        print("Downloading model weights (this takes a few minutes on first run)...")
+        subprocess.run([
+            sys.executable, "-c",
+            f"from huggingface_hub import snapshot_download; snapshot_download('tencent/HunyuanVideo-Avatar', local_dir='{ckpts}')"
+        ], check=True)
+
+    sys.path.insert(0, str(model_path))
+    INITIALIZED = True
+    print("Model ready!")
+    return True
 
 
 def download_file(url_or_base64: str, suffix: str) -> str:
@@ -27,6 +64,8 @@ def download_file(url_or_base64: str, suffix: str) -> str:
 
 
 def handler(job):
+    setup_model()
+
     job_input = job["input"]
 
     source_image = job_input.get("source_image")
@@ -43,7 +82,7 @@ def handler(job):
     output_path = os.path.join(output_dir, "output.mp4")
 
     cmd = [
-        "python", "inference.py",
+        sys.executable, "inference.py",
         "--image_path", image_path,
         "--audio_path", audio_path,
         "--output_path", output_path,
@@ -52,7 +91,7 @@ def handler(job):
 
     result = subprocess.run(
         cmd,
-        cwd="/app/HunyuanVideo-Avatar",
+        cwd=MODEL_DIR,
         capture_output=True,
         text=True,
         timeout=600,
