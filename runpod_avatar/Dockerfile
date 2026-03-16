@@ -14,6 +14,7 @@ RUN git clone https://github.com/Tencent/HunyuanVideo-Avatar.git /app/HunyuanVid
 WORKDIR /app/HunyuanVideo-Avatar
 
 RUN pip install -r requirements.txt
+RUN pip install transformers==4.39.3 diffusers==0.27.2
 RUN pip install runpod boto3
 
 RUN python -c "from huggingface_hub import snapshot_download; snapshot_download('tencent/HunyuanVideo-Avatar', local_dir='ckpts')"
