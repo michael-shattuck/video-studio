@@ -110,7 +110,7 @@ def handler(job):
         "--seed", "128",
         "--image-size", "512",
         "--cfg-scale", "7.5",
-        "--infer-steps", "50",
+        "--infer-steps", "25",
         "--use-deepcache", "1",
         "--flow-shift-eval-video", "5.0",
         "--save-path", output_dir,
