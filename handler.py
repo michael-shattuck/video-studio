@@ -41,6 +41,12 @@ def setup_model():
         if result.returncode != 0:
             print(f"Pip install warning: {result.stderr}")
 
+        print("Ensuring correct diffusers/transformers versions...")
+        subprocess.run([
+            sys.executable, "-m", "pip", "install", "-q",
+            "transformers>=4.50.0", "diffusers==0.33.0"
+        ], capture_output=True, text=True)
+
     weights_dir = model_path / "weights" / "ckpts"
     if not weights_dir.exists() or not any(weights_dir.glob("**/*.pt")):
         print("Downloading model weights from HuggingFace...")
