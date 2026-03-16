@@ -25,6 +25,11 @@ class Config:
     azure_openai_foundry_key: str = field(default_factory=lambda: os.getenv("AZURE_OPENAI_FOUNDRY_KEY", ""))
     azure_openai_script_deployment: str = field(default_factory=lambda: os.getenv("AZURE_OPENAI_SCRIPT_DEPLOYMENT", "gpt-5.4"))
     azure_dalle_deployment: str = field(default_factory=lambda: os.getenv("AZURE_DALLE_DEPLOYMENT", "dalle3"))
+    azure_storage_connection_string: str = field(default_factory=lambda: os.getenv("AZURE_STORAGE_CONNECTION_STRING", ""))
+    azure_storage_container: str = field(default_factory=lambda: os.getenv("AZURE_STORAGE_CONTAINER", "media"))
+
+    runpod_api_key: str = field(default_factory=lambda: os.getenv("RUNPOD_API_KEY", ""))
+    runpod_infinitetalk_endpoint: str = field(default_factory=lambda: os.getenv("RUNPOD_INFINITETALK_ENDPOINT", "smu7s0ky1u8cie"))
 
     output_dir: str = field(default_factory=lambda: str(Path(__file__).parent / "output"))
     assets_dir: str = field(default_factory=lambda: str(Path(__file__).parent / "assets"))

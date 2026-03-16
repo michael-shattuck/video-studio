@@ -7,6 +7,7 @@ from pathlib import Path
 from dataclasses import dataclass
 
 from .config import config
+from .infinitetalk import InfiniteTalkGenerator, get_cast_member, CAST
 
 
 AZURE_EMOTION_MAP = {
@@ -411,7 +412,7 @@ class Hallo3Generator:
 
 
 class TalkingHeadManager:
-    def __init__(self, backend: str = "auto", avatar_voice: str = "jane", avatar_character: str = "anika", avatar_style: str = "", use_photo_avatar: bool = True):
+    def __init__(self, backend: str = "infinitetalk", avatar_voice: str = "jane", avatar_character: str = "rachel", avatar_style: str = "", use_photo_avatar: bool = True):
         self.backend = backend
         self.avatar_voice = avatar_voice
         self.avatar_character = avatar_character
@@ -420,6 +421,7 @@ class TalkingHeadManager:
         self._memo = None
         self._hallo = None
         self._azure = None
+        self._infinitetalk = None
 
     @property
     def memo(self) -> MEMOGenerator:
@@ -445,12 +447,20 @@ class TalkingHeadManager:
         return self._azure
 
     @property
+    def infinitetalk(self) -> InfiniteTalkGenerator:
+        if self._infinitetalk is None:
+            self._infinitetalk = InfiniteTalkGenerator()
+        return self._infinitetalk
+
+    @property
     def available(self) -> bool:
-        return self.azure.available or self.memo.available or self.hallo.available
+        return self.infinitetalk.available or self.azure.available or self.memo.available or self.hallo.available
 
     def get_backend(self) -> str:
         if self.backend != "auto":
             return self.backend
+        if self.infinitetalk.available:
+            return "infinitetalk"
         if self.azure.available:
             return "azure"
         if self.memo.available:
@@ -471,17 +481,29 @@ class TalkingHeadManager:
         if backend is None:
             raise RuntimeError(
                 "No talking head backend available. Options:\n"
-                "  Azure Avatar: Set AZURE_SPEECH_KEY and AZURE_SPEECH_REGION (no GPU needed)\n"
+                "  InfiniteTalk: Set RUNPOD_API_KEY (RunPod serverless)\n"
+                "  Azure Avatar: Set AZURE_SPEECH_KEY and AZURE_SPEECH_REGION\n"
                 "  MEMO: https://github.com/memoavatar/memo (requires GPU)\n"
                 "  Hallo3: https://github.com/fudan-generative-vision/hallo3 (requires GPU)"
             )
 
-        if backend == "azure":
+        if backend == "infinitetalk":
+            prompt = kwargs.pop("prompt", "A person speaking naturally")
+            speaker = kwargs.pop("speaker", self.avatar_character)
+            cast_member = get_cast_member(speaker)
+            if image_path and Path(image_path).exists():
+                img = image_path
+            elif Path(cast_member.image_path).exists():
+                img = cast_member.image_path
+            else:
+                img = CAST["rachel"].image_path
+            return self.infinitetalk.generate(img, audio_path, output_path, prompt=cast_member.prompt)
+        elif backend == "azure":
             text = kwargs.pop("text", None)
             segments = kwargs.pop("segments", None)
             emotion = kwargs.pop("emotion", "default")
             if not text and not segments:
-                raise RuntimeError("Azure Avatar requires 'text' or 'segments' parameter (generates its own TTS)")
+                raise RuntimeError("Azure Avatar requires 'text' or 'segments' parameter")
             return self.azure.generate(text or "", output_path, emotion=emotion, segments=segments)
         elif backend == "memo":
             return self.memo.generate(image_path, audio_path, output_path, **kwargs)
@@ -490,14 +512,23 @@ class TalkingHeadManager:
         else:
             raise ValueError(f"Unknown backend: {backend}")
 
+    def generate_multi_speaker(
+        self,
+        segments: list[dict],
+        output_path: str,
+    ) -> str:
+        backend = self.get_backend()
+        if backend != "infinitetalk":
+            raise RuntimeError("generate_multi_speaker only works with InfiniteTalk backend")
+        return self.infinitetalk.generate_multi_speaker(segments, output_path)
+
     def generate_from_script(self, script, output_path: str) -> str:
         backend = self.get_backend()
-        if backend != "azure":
-            raise RuntimeError("generate_from_script only works with Azure backend")
-
-        segments = [{"text": script.hook}]
-        for seg in script.segments:
-            segments.append({"text": seg.text})
-        segments.append({"text": script.outro})
-
-        return self.azure.generate("", output_path, segments=segments)
+        if backend == "azure":
+            segments = [{"text": script.hook}]
+            for seg in script.segments:
+                segments.append({"text": seg.text})
+            segments.append({"text": script.outro})
+            return self.azure.generate("", output_path, segments=segments)
+        else:
+            raise RuntimeError("generate_from_script requires pre-generated audio for non-Azure backends")
