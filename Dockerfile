@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.
 
 RUN pip install --no-cache-dir \
     runpod requests huggingface_hub \
-    "transformers>=4.50.0" "diffusers==0.33.0" accelerate \
+    "transformers==4.41.2" "diffusers==0.33.0" accelerate \
     opencv-python einops tqdm loguru imageio imageio-ffmpeg \
     safetensors decord librosa scikit-video pandas numpy
 
