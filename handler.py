@@ -90,8 +90,8 @@ def handler(job):
 
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["videoid", "audio_path", "image_path"])
-        writer.writerow(["test_video", audio_path, image_path])
+        writer.writerow(["videoid", "image", "audio", "prompt", "fps"])
+        writer.writerow(["test_video", image_path, audio_path, "A person talking", 25.0])
 
     model_path = Path(MODEL_DIR)
     weights_path = model_path / "weights" / "ckpts" / "hunyuan-video-t2v-720p" / "transformers" / "mp_rank_00_model_states_fp8.pt"
