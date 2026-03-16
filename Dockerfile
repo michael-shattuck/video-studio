@@ -8,7 +8,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y git ffmpeg && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir runpod requests huggingface_hub \
-    && pip install --no-cache-dir "transformers>=4.50.0" "diffusers==0.33.0" accelerate
+    && pip uninstall -y diffusers transformers || true \
+    && pip install --no-cache-dir --force-reinstall "transformers>=4.50.0" "diffusers==0.33.0" accelerate
 
 COPY handler.py /app/handler.py
 

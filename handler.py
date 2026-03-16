@@ -43,7 +43,7 @@ def setup_model():
 
         print("Ensuring correct diffusers/transformers versions...")
         subprocess.run([
-            sys.executable, "-m", "pip", "install", "-q",
+            sys.executable, "-m", "pip", "install", "-q", "--force-reinstall",
             "transformers>=4.50.0", "diffusers==0.33.0"
         ], capture_output=True, text=True)
 
