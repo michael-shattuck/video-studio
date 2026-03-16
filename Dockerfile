@@ -1,24 +1,12 @@
-FROM nvidia/cuda:12.4.0-devel-ubuntu22.04
+FROM hunyuanvideo/hunyuanvideo:cuda_12
 
-ENV DEBIAN_FRONTEND=noninteractive
-ENV HF_HOME=/app/huggingface
 ENV MODEL_DIR=/app/HunyuanVideo-Avatar
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
-    python3.11 python3.11-venv python3-pip \
-    git ffmpeg libsm6 libxext6 \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -s /usr/bin/python3.11 /usr/bin/python
+RUN pip install --no-cache-dir runpod requests
 
-RUN pip install --no-cache-dir torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu124
-
-RUN pip install --no-cache-dir \
-    runpod requests huggingface_hub \
-    "transformers==4.41.2" "diffusers==0.33.0" accelerate \
-    opencv-python einops tqdm loguru imageio imageio-ffmpeg \
-    safetensors decord librosa scikit-video pandas numpy
+RUN pip install --no-cache-dir "transformers==4.41.2" "diffusers==0.33.0"
 
 COPY handler.py /app/handler.py
 
