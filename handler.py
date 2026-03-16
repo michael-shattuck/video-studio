@@ -79,6 +79,14 @@ def handler(job):
     audio = job_input.get("audio")
     mode = job_input.get("mode", "upper_body")
 
+    frames = job_input.get("frames", 65)
+    image_size = job_input.get("image_size", 512)
+    infer_steps = job_input.get("infer_steps", 25)
+    cfg_scale = job_input.get("cfg_scale", 7.5)
+    seed = job_input.get("seed", 128)
+    fps = job_input.get("fps", 25)
+    prompt = job_input.get("prompt", "A person talking")
+
     if not source_image or not audio:
         return {"error": "source_image and audio are required"}
 
@@ -91,7 +99,7 @@ def handler(job):
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["videoid", "image", "audio", "prompt", "fps"])
-        writer.writerow(["test_video", image_path, audio_path, "A person talking", 25.0])
+        writer.writerow(["test_video", image_path, audio_path, prompt, fps])
 
     model_path = Path(MODEL_DIR)
     weights_path = model_path / "weights" / "ckpts" / "hunyuan-video-t2v-720p" / "transformers" / "mp_rank_00_model_states_fp8.pt"
@@ -106,11 +114,11 @@ def handler(job):
         str(model_path / "hymm_sp" / "sample_gpu_poor.py"),
         "--input", csv_path,
         "--ckpt", str(weights_path),
-        "--sample-n-frames", "65",
-        "--seed", "128",
-        "--image-size", "512",
-        "--cfg-scale", "7.5",
-        "--infer-steps", "25",
+        "--sample-n-frames", str(frames),
+        "--seed", str(seed),
+        "--image-size", str(image_size),
+        "--cfg-scale", str(cfg_scale),
+        "--infer-steps", str(infer_steps),
         "--use-deepcache", "1",
         "--flow-shift-eval-video", "5.0",
         "--save-path", output_dir,
@@ -151,6 +159,14 @@ def handler(job):
     return {
         "video_base64": video_b64,
         "mode": mode,
+        "settings": {
+            "frames": frames,
+            "image_size": image_size,
+            "infer_steps": infer_steps,
+            "cfg_scale": cfg_scale,
+            "seed": seed,
+            "fps": fps,
+        }
     }
 
 
