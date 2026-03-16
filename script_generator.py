@@ -183,7 +183,10 @@ class ScriptGenerator:
     def __init__(self):
         self.researcher = TopicResearcher()
 
-    def generate(self, topic: str, style: str = "educational", duration_minutes: int = 8, script_format: str = "monologue") -> VideoScript:
+    def generate(self, topic: str, style: str = "educational", duration_minutes: int = 8, script_format: str = "monologue", is_short: bool = False) -> VideoScript:
+        if is_short:
+            return self.generate_short(topic, style, duration_seconds=min(duration_minutes * 60, 60))
+
         target_words = duration_minutes * config.words_per_minute
 
         research_context = ""
@@ -208,6 +211,17 @@ class ScriptGenerator:
 
         temperature = 0.95 if style == "turboencabulator" else 0.7
         response = self._call_opencode(prompt, temperature=temperature)
+        return self._parse_response(response)
+
+    def generate_short(self, topic: str, style: str = "turboencabulator", duration_seconds: int = 45) -> VideoScript:
+        target_words = int(duration_seconds * config.words_per_minute / 60)
+
+        if style == "turboencabulator":
+            prompt = self._turbo_shortform_prompt(topic, target_words, duration_seconds)
+        else:
+            prompt = self._standard_shortform_prompt(topic, target_words, duration_seconds)
+
+        response = self._call_opencode(prompt, temperature=0.95)
         return self._parse_response(response)
 
     def _run_research(self, topic: str, depth: int) -> dict:
@@ -464,6 +478,139 @@ Return JSON:
     "description": "Episode description",
     "tags": ["{topic}", "deep dive", "rachel"],
     "key_phrases": ["Notable quotes from the episode"]
+}}
+
+Return ONLY valid JSON."""
+
+    def _turbo_shortform_prompt(self, topic: str, target_words: int, duration_seconds: int) -> str:
+        import random
+
+        short_formats = [
+            "hot_take",
+            "explainer",
+            "reaction",
+            "rant",
+            "conspiracy",
+        ]
+        chosen_format = random.choice(short_formats)
+
+        format_instructions = {
+            "hot_take": """Rachel delivers a spicy take that sounds profound but means nothing.
+Structure: Bold claim → fake evidence → circular conclusion
+Example energy: "People say X is bad. But here's what they don't tell you..." → nonsense → "And THAT'S why X is... well, you know."
+""",
+            "explainer": """Rachel "explains" something with fake expertise.
+Structure: "Let me break this down..." → increasingly absurd "facts" → ends before making a point
+Example energy: Starts reasonable, each sentence gets 10% more insane, cuts off mid-thought
+""",
+            "reaction": """Rachel reacts to a "controversial take" (that she made up).
+Structure: "Someone said..." → outraged response → accidentally agrees → confused
+Example energy: Performative shock that reveals she has no actual position
+""",
+            "rant": """Rachel goes OFF about something trivial as if it's world-ending.
+Structure: Minor grievance → escalates to cosmic importance → ends abruptly
+Example energy: Maximum passion, zero substance
+""",
+            "conspiracy": """Rachel connects dots that don't exist.
+Structure: "Notice how..." → fake pattern → absurd conclusion delivered as revelation
+Example energy: Hushed intensity building to "open your eyes" moment
+""",
+        }
+
+        hooks = [
+            f"POV: someone asks you about {topic}",
+            f"Nobody's talking about this {topic} thing",
+            f"The {topic} discourse is WILD right now",
+            f"I need to talk about {topic}",
+            f"Hot take on {topic}",
+            f"Why is nobody saying this about {topic}",
+            f"{topic}? Let me explain.",
+            f"They don't want you to know this about {topic}",
+        ]
+        chosen_hook = random.choice(hooks)
+
+        return f"""Create a TikTok/Short script for Rachel about: {topic}
+
+FORMAT: {chosen_format}
+{format_instructions[chosen_format]}
+
+TARGET: {target_words} words ({duration_seconds} seconds)
+HOOK STYLE: "{chosen_hook}"
+
+WHO IS RACHEL (SHORT-FORM VERSION):
+Same Rachel from the podcast but optimized for shorts:
+- NO intro, NO "welcome back" - hook immediately
+- Speaks fast, cuts herself off, restarts thoughts
+- Uses TikTok speech patterns: "like," "literally," "okay but," "no because"
+- Delivers nonsense with main-character confidence
+- Ends abruptly (often mid-sentence or on a non-conclusion)
+
+STRUCTURE:
+1. HOOK (first 2 seconds): Grab attention immediately. No pleasantries.
+2. BUILD (next 70%): Escalate quickly. Each sentence more absurd than the last.
+3. END (final moment): Cut off at peak absurdity OR land on a "conclusion" that means nothing.
+
+CRITICAL RULES:
+1. NO INTRO - start mid-thought if needed
+2. NO OUTRO - end abruptly, leave them wanting more
+3. FAST escalation - no time for setup, get weird immediately
+4. ONE "take" that sounds like a position but isn't
+5. Maximum confidence, zero commitment
+6. Use filler words naturally: "like," "literally," "wait," "okay but"
+7. Can restart mid-sentence: "It's not even-- okay wait, let me--"
+
+EMOTIONAL MARKERS:
+[excited] [frustrated] [passionate] [whispering] [shouting] [confused]
+
+BANNED:
+- Any intro ("hey guys," "welcome back," etc.)
+- Any outro ("follow for more," "let me know," etc.)
+- Stage directions
+- More than 3 segments
+
+Return JSON:
+{{
+    "title": "Short punchy title",
+    "hook": "",
+    "segments": [
+        {{"text": "[marker] Fast dialogue...", "visual_cue": "Visual"}}
+    ],
+    "outro": "",
+    "thumbnail_text": "2-3 words",
+    "description": "Short description",
+    "tags": ["shorts", "{topic}"],
+    "key_phrases": ["Best line from the short"]
+}}
+
+Return ONLY valid JSON. Make it PUNCHY."""
+
+    def _standard_shortform_prompt(self, topic: str, target_words: int, duration_seconds: int) -> str:
+        return f"""Create a TikTok/YouTube Short script about: {topic}
+
+TARGET: {target_words} words ({duration_seconds} seconds)
+
+STRUCTURE:
+1. HOOK (1-2 seconds): Grab attention immediately
+2. CONTENT (main body): One clear point, fast delivery
+3. END: Punchline or call-to-action
+
+RULES:
+- NO long intro - start with the hook
+- ONE main point only
+- End strong
+
+Return JSON:
+{{
+    "title": "Short title",
+    "hook": "",
+    "segments": [
+        {{"text": "Content...", "visual_cue": "Visual"}}
+    ],
+    "outro": "",
+    "thumbnail_text": "2-3 words",
+    "description": "Description",
+    "tags": ["shorts", "{topic}"],
+    "key_phrases": ["Key quote"]
 }}
 
 Return ONLY valid JSON."""
