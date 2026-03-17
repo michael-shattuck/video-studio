@@ -2,6 +2,8 @@ import torch
 import base64
 import io
 import os
+import sys
+import subprocess
 import runpod
 from PIL import Image
 from huggingface_hub import snapshot_download
@@ -9,9 +11,30 @@ from huggingface_hub import snapshot_download
 pipeline = None
 automasker = None
 
+def setup_catvton():
+    """Clone CatVTON repo if model module not available"""
+    catvton_path = "/app/catvton"
+    if not os.path.exists(catvton_path):
+        print("Cloning CatVTON repository...")
+        subprocess.run(["git", "clone", "https://github.com/Zheng-Chong/CatVTON.git", catvton_path], check=True)
+
+    if catvton_path not in sys.path:
+        sys.path.insert(0, catvton_path)
+
+    # Install detectron2 if needed
+    try:
+        import detectron2
+    except ImportError:
+        print("Installing detectron2...")
+        subprocess.run([sys.executable, "-m", "pip", "install", "git+https://github.com/facebookresearch/detectron2.git"], check=True)
+        subprocess.run([sys.executable, "-m", "pip", "install", "git+https://github.com/facebookresearch/detectron2@main#subdirectory=projects/DensePose"], check=True)
+
 def load_models():
     global pipeline, automasker
     if pipeline is None:
+        # Ensure CatVTON is available
+        setup_catvton()
+
         from model.pipeline import CatVTONPipeline
         from model.cloth_masker import AutoMasker
 
