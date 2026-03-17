@@ -17,6 +17,30 @@ from moviepy import (
 from .config import config
 
 
+def get_word_timestamps(audio_path: str) -> list[dict]:
+    """Extract word-level timestamps using Whisper."""
+    try:
+        import whisper
+        model = whisper.load_model("base")  # Use "small" or "medium" for better accuracy
+        result = model.transcribe(audio_path, word_timestamps=True)
+
+        words = []
+        for segment in result.get("segments", []):
+            for word_info in segment.get("words", []):
+                words.append({
+                    "word": word_info["word"].strip(),
+                    "start": word_info["start"],
+                    "end": word_info["end"],
+                })
+        return words
+    except ImportError:
+        print("      Whisper not installed (pip install openai-whisper)")
+        return []
+    except Exception as e:
+        print(f"      Whisper transcription failed: {e}")
+        return []
+
+
 @dataclass
 class AssemblyConfig:
     width: int = 1920
@@ -334,4 +358,154 @@ class VideoAssembler:
             draw.text((x, y), line, font=topic_font, fill=(255, 255, 255))
 
         bg.save(output_path, "PNG", quality=95)
+        return output_path
+
+    def add_zoom_effects(
+        self,
+        video_path: str,
+        output_path: str,
+        emotion_times: list[dict] = None,
+        zoom_factor: float = 1.08,
+        zoom_duration: float = 0.25,
+    ) -> str:
+        """Add zoom punch effects at emotional marker transitions.
+
+        emotion_times: [{"time": 5.2, "emotion": "excited"}, ...]
+        """
+        clip = VideoFileClip(video_path)
+
+        if not emotion_times:
+            # No effects needed
+            clip.close()
+            return video_path
+
+        # Emotions that trigger zoom
+        zoom_emotions = {"excited", "passionate", "shouting", "frustrated"}
+
+        def make_zoom_effect(t):
+            for et in emotion_times:
+                trigger_time = et["time"]
+                emotion = et.get("emotion", "").lower()
+                if emotion not in zoom_emotions:
+                    continue
+                # Zoom in quickly, then ease out
+                if trigger_time <= t < trigger_time + zoom_duration:
+                    progress = (t - trigger_time) / zoom_duration
+                    # Quick zoom in, slow zoom out
+                    if progress < 0.3:
+                        scale = 1 + (zoom_factor - 1) * (progress / 0.3)
+                    else:
+                        scale = zoom_factor - (zoom_factor - 1) * ((progress - 0.3) / 0.7)
+                    return scale
+            return 1.0
+
+        def zoom_frame(get_frame, t):
+            frame = get_frame(t)
+            scale = make_zoom_effect(t)
+            if scale == 1.0:
+                return frame
+
+            from PIL import Image
+            import numpy as np
+
+            img = Image.fromarray(frame)
+            w, h = img.size
+            new_w, new_h = int(w * scale), int(h * scale)
+            img = img.resize((new_w, new_h), Image.LANCZOS)
+
+            # Crop to original size from center
+            left = (new_w - w) // 2
+            top = (new_h - h) // 2
+            img = img.crop((left, top, left + w, top + h))
+
+            return np.array(img)
+
+        zoomed = clip.transform(zoom_frame)
+        zoomed.write_videofile(
+            output_path,
+            fps=self.config.fps,
+            codec="libx264",
+            audio_codec="aac",
+            threads=4,
+            preset="fast",
+        )
+
+        clip.close()
+        zoomed.close()
+        return output_path
+
+    def add_animated_captions(
+        self,
+        video_path: str,
+        output_path: str,
+        word_timings: list[dict],
+        style: str = "bold",
+    ) -> str:
+        """Add word-by-word animated captions.
+
+        word_timings: [{"word": "Hello", "start": 0.0, "end": 0.3}, ...]
+        style: "bold" | "highlight" | "bounce"
+        """
+        clip = VideoFileClip(video_path)
+
+        if not word_timings:
+            clip.close()
+            return video_path
+
+        # Group words into lines (max 3-4 words per line)
+        caption_clips = []
+        words_per_line = 3 if self.config.is_short else 5
+
+        for i in range(0, len(word_timings), words_per_line):
+            line_words = word_timings[i:i + words_per_line]
+            if not line_words:
+                continue
+
+            text = " ".join(w["word"] for w in line_words)
+            start = line_words[0]["start"]
+            end = line_words[-1]["end"]
+            duration = end - start
+
+            # Create text clip
+            txt = TextClip(
+                text=text,
+                font=self.config.font,
+                font_size=self.config.font_size,
+                color="white",
+                stroke_color="black",
+                stroke_width=3,
+                method="caption",
+                size=(self.config.width * 0.9, None),
+            )
+            txt = txt.with_duration(duration)
+            txt = txt.with_start(start)
+
+            # Position at bottom third
+            y_pos = self.config.height * 0.75
+            txt = txt.with_position(("center", y_pos))
+
+            # Add fade effects
+            txt = txt.with_effects([vfx.CrossFadeIn(0.1), vfx.CrossFadeOut(0.1)])
+
+            caption_clips.append(txt)
+
+        if caption_clips:
+            final = CompositeVideoClip([clip] + caption_clips)
+        else:
+            final = clip
+
+        final.write_videofile(
+            output_path,
+            fps=self.config.fps,
+            codec="libx264",
+            audio_codec="aac",
+            threads=4,
+            preset="fast",
+        )
+
+        clip.close()
+        final.close()
+        for c in caption_clips:
+            c.close()
+
         return output_path

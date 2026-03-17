@@ -285,6 +285,58 @@ class InfiniteTalkGenerator:
                 else:
                     raise
 
+    def _submit_chunk(self, idx: int, audio_path: str, image_url: str, prompt: str) -> tuple[int, str, str]:
+        """Submit a chunk job and return (idx, job_id, audio_url) without waiting"""
+        chunk_name = f"chunk_{idx:03d}_{int(time.time())}.wav"
+        audio_url = self._upload_to_blob(audio_path, chunk_name)
+        job_id = self._submit_job(image_url, audio_url, prompt)
+        return idx, job_id, audio_url
+
+    def _poll_all_jobs(self, jobs: list[tuple[int, str]], videos_dir: Path, timeout: int = 1800) -> tuple[dict[int, str], list[str]]:
+        """Poll multiple jobs in parallel until all complete. Saves chunks to disk immediately."""
+        video_files = {}
+        failures = []
+        pending = {job_id: idx for idx, job_id in jobs}
+        start = time.time()
+
+        while pending and time.time() - start < timeout:
+            for job_id in list(pending.keys()):
+                try:
+                    response = requests.get(
+                        f"{self.base_url}/status/{job_id}",
+                        headers={"Authorization": f"Bearer {self.api_key}"}
+                    )
+                    result = response.json()
+                    status = result.get("status")
+
+                    if status == "COMPLETED":
+                        idx = pending.pop(job_id)
+                        video_b64 = result.get("output", {}).get("video", "")
+                        if video_b64.startswith("data:video/mp4;base64,"):
+                            video_b64 = video_b64[len("data:video/mp4;base64,"):]
+                        # Save immediately to disk
+                        video_path = videos_dir / f"chunk_{idx:03d}.mp4"
+                        with open(video_path, "wb") as f:
+                            f.write(base64.b64decode(video_b64))
+                        video_files[idx] = str(video_path)
+                        print(f"      Chunk {idx}: done (saved)")
+                    elif status == "FAILED":
+                        idx = pending.pop(job_id)
+                        error_msg = f"Chunk {idx} failed: {result.get('error', 'unknown')}"
+                        failures.append(error_msg)
+                        print(f"      {error_msg}")
+                except requests.RequestException:
+                    pass  # Retry on next iteration
+
+            if pending:
+                time.sleep(5)
+
+        if pending:
+            for job_id, idx in pending.items():
+                failures.append(f"Chunk {idx} timed out (job {job_id[:8]})")
+
+        return video_files, failures
+
     def generate(
         self,
         image_path: str,
@@ -340,19 +392,28 @@ class InfiniteTalkGenerator:
 
         image_name = f"avatar_{int(time.time())}.png"
         image_url = self._upload_to_blob(image_path, image_name)
-        video_files = {}
 
+        # Submit all jobs in parallel
+        print(f"    Submitting {len(chunks)} chunks in parallel...")
+        jobs = []
         for idx, chunk in enumerate(chunks):
             emotion = segment_emotions[idx] if segment_emotions and idx < len(segment_emotions) else "default"
             chunk_prompt = EMOTION_PROMPTS.get(emotion, EMOTION_PROMPTS["default"])
-            print(f"    Chunk {idx}/{len(chunks)-1}: {emotion}...")
+            idx, job_id, _ = self._submit_chunk(idx, chunk, image_url, chunk_prompt)
+            jobs.append((idx, job_id))
+            print(f"      Chunk {idx}: {emotion} -> job {job_id[:8]}")
 
-            _, video_data = self._process_chunk(idx, chunk, image_url, chunk_prompt)
-            video_path = videos_dir / f"chunk_{idx:03d}.mp4"
-            with open(video_path, "wb") as f:
-                f.write(video_data)
-            video_files[idx] = str(video_path)
-            print(f"    Chunk {idx}: done")
+        # Poll all jobs until complete (saves chunks to disk as they complete)
+        print(f"    Waiting for {len(jobs)} jobs...")
+        video_files, failures = self._poll_all_jobs(jobs, videos_dir, timeout=1800)
+
+        if failures:
+            print(f"    WARNING: {len(failures)} chunks failed:")
+            for f in failures:
+                print(f"      - {f}")
+
+        if not video_files:
+            raise Exception(f"All chunks failed: {failures}")
 
         concat_list = videos_dir / "concat.txt"
         with open(concat_list, "w") as f:

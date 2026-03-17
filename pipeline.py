@@ -1,10 +1,30 @@
 import asyncio
 import json
+import random
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass, asdict
 
 from .config import config
+
+# Rachel outfit variants - cycle through these for variety
+RACHEL_OUTFITS = [
+    "rachel_avatar.png",  # Original
+    "rachel_red.png",
+    "rachel_blue.png",
+    "rachel_burgandy.png",
+    "rachel_purple.png",
+]
+
+def get_random_outfit() -> str:
+    """Pick a random Rachel outfit"""
+    outfit = random.choice(RACHEL_OUTFITS)
+    return str(Path(config.assets_dir) / outfit)
+
+def get_outfit_by_index(index: int) -> str:
+    """Get outfit by index (cycles through list)"""
+    outfit = RACHEL_OUTFITS[index % len(RACHEL_OUTFITS)]
+    return str(Path(config.assets_dir) / outfit)
 from .script_generator import ScriptGenerator, VideoScript, ScriptSegment
 from .voice_generator import VoiceGenerator, OpenAIVoiceGenerator, ElevenLabsVoiceGenerator, BarkVoiceGenerator, FishSpeechVoiceGenerator, AzureTTSVoiceGenerator, AzureOpenAIAudioGenerator
 from .stock_footage import StockFootageManager
@@ -140,6 +160,33 @@ class VideoPipeline:
         self.assembler = VideoAssembler(assembly_config)
         self.music_fetcher = MusicFetcher()
         self.audio_mixer = AudioMixer()
+
+    def _calculate_emotion_times(self, voice_segments: list[str], segment_emotions: list[str]) -> list[dict]:
+        """Calculate timestamps where emotional transitions occur."""
+        from moviepy import AudioFileClip
+
+        emotion_times = []
+        cumulative_time = 0.0
+
+        for i, seg_path in enumerate(voice_segments):
+            if not Path(seg_path).exists():
+                continue
+
+            emotion = segment_emotions[i] if i < len(segment_emotions) else "default"
+
+            # Trigger zoom at the START of high-energy emotions
+            if emotion in {"excited", "passionate", "shouting", "frustrated"}:
+                emotion_times.append({
+                    "time": cumulative_time,
+                    "emotion": emotion,
+                })
+
+            # Get duration for next segment's start time
+            clip = AudioFileClip(seg_path)
+            cumulative_time += clip.duration
+            clip.close()
+
+        return emotion_times
 
     def _concatenate_audio(self, audio_paths: list[str], output_path: str) -> str:
         from moviepy import AudioFileClip, concatenate_audioclips
@@ -301,10 +348,15 @@ class VideoPipeline:
             import re
             engine_name = self.tts_engine.upper()
             print(f"      Using {engine_name} TTS with emotional progression...")
-            segments = [{"text": project.script.hook}]
+            segments = []
+            # For shorts: hook is subtitle-only, skip it. For long-form: include hook if non-empty
+            if not self.is_short and project.script.hook:
+                segments.append({"text": project.script.hook})
             for seg in project.script.segments:
                 segments.append({"text": seg.text})
-            segments.append({"text": project.script.outro})
+            # Only include outro if non-empty
+            if project.script.outro:
+                segments.append({"text": project.script.outro})
 
             emotions = []
             for seg in segments:
@@ -365,9 +417,9 @@ class VideoPipeline:
         talking_head_video = str(project_dir / "talking_head.mp4")
         avatar_path = avatar_image or self.avatar_image
         if not avatar_path:
-            default_avatar = Path(config.assets_dir) / "rachel_avatar.png"
-            if default_avatar.exists():
-                avatar_path = str(default_avatar)
+            # Cycle through Rachel outfits for variety
+            avatar_path = get_random_outfit()
+            print(f"[outfit] Using: {Path(avatar_path).name}")
 
         talking_head_loaded = False
         if Path(talking_head_video).exists():
@@ -463,6 +515,32 @@ class VideoPipeline:
                     project.footage_paths = [composite_path]
                     manifest.mark_step("composite")
                     print(f"      Final video: {composite_path}")
+
+                # Add zoom effects at emotion transitions (for shorts)
+                if self.is_short and project.voice_segments and project.segment_emotions:
+                    emotion_times = self._calculate_emotion_times(project.voice_segments, project.segment_emotions)
+                    if emotion_times:
+                        print(f"      Adding zoom effects at {len(emotion_times)} emotion points...")
+                        zoomed_path = str(project_dir / "video_zoomed.mp4")
+                        self.assembler.add_zoom_effects(project.video_path, zoomed_path, emotion_times)
+                        # Replace video with zoomed version
+                        import shutil
+                        shutil.move(zoomed_path, project.video_path)
+
+                # Add animated captions (for shorts, requires whisper)
+                if self.is_short and project.audio_path:
+                    try:
+                        from .video_assembler import get_word_timestamps
+                        print(f"      Extracting word timestamps for captions...")
+                        word_timings = get_word_timestamps(project.audio_path)
+                        if word_timings:
+                            print(f"      Adding animated captions ({len(word_timings)} words)...")
+                            captioned_path = str(project_dir / "video_captioned.mp4")
+                            self.assembler.add_animated_captions(project.video_path, captioned_path, word_timings)
+                            import shutil
+                            shutil.move(captioned_path, project.video_path)
+                    except Exception as e:
+                        print(f"      Captions skipped: {e}")
 
         if not use_talking_head and not skip_footage:
             visual_cues = [seg.visual_cue for seg in project.script.segments if seg.visual_cue]

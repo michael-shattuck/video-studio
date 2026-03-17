@@ -222,8 +222,19 @@ class ScriptGenerator:
 
         target_words = int(duration_seconds * config.words_per_minute / 60)
 
+        research_context = ""
         if style == "turboencabulator":
-            prompt = self._turbo_shortform_prompt(topic, target_words, duration_seconds)
+            # Research for shorts too - essential for current events
+            try:
+                research = self._run_research(topic, depth=2)
+                research_context = self.researcher.format_research_context(research, max_items=5)
+                if research_context and research_context != "No specific research found - use general knowledge.":
+                    print(f"      Research gathered: {len(research.get('facts', []))} facts, {len(research.get('statistics', []))} stats")
+            except Exception as e:
+                print(f"      Research failed (continuing without): {e}")
+                research_context = ""
+
+            prompt = self._turbo_shortform_prompt(topic, target_words, duration_seconds, research_context)
         else:
             prompt = self._standard_shortform_prompt(topic, target_words, duration_seconds)
 
@@ -514,8 +525,17 @@ Return JSON:
 
 Return ONLY valid JSON."""
 
-    def _turbo_shortform_prompt(self, topic: str, target_words: int, duration_seconds: int) -> str:
+    def _turbo_shortform_prompt(self, topic: str, target_words: int, duration_seconds: int, research_context: str = "") -> str:
         import random
+
+        research_section = ""
+        if research_context:
+            research_section = f"""
+RESEARCH (USE THESE REAL FACTS - start with these, then spiral into absurdity):
+{research_context}
+
+CRITICAL: The first segment MUST use at least one of these REAL facts. Start grounded in reality.
+"""
 
         short_formats = [
             "deep_dive",
@@ -555,7 +575,7 @@ Example: "Why isn't anyone talking about... [real issue] → the data shows... [
         chosen_hook = random.choice(hooks)
 
         return f"""Create a TikTok/Short script for Rachel about: {topic}
-
+{research_section}
 FORMAT: {chosen_format}
 {format_instructions[chosen_format]}
 
