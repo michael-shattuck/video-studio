@@ -14,6 +14,14 @@ automasker = None
 def setup_catvton():
     """Clone CatVTON repo if model module not available"""
     catvton_path = "/app/catvton"
+
+    # Fix numpy/scipy compatibility first
+    print("Fixing numpy/scipy versions...")
+    subprocess.run([sys.executable, "-m", "pip", "install", "numpy<2", "scipy>=1.10,<1.14", "-q"], check=True)
+
+    # Install diffusers with compatible version
+    subprocess.run([sys.executable, "-m", "pip", "install", "diffusers==0.27.2", "transformers", "accelerate", "-q"], check=True)
+
     if not os.path.exists(catvton_path):
         print("Cloning CatVTON repository...")
         subprocess.run(["git", "clone", "https://github.com/Zheng-Chong/CatVTON.git", catvton_path], check=True)
