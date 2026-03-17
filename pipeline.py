@@ -19,6 +19,7 @@ class VideoProject:
     script: VideoScript = None
     audio_path: str = ""
     footage_paths: list[str] = None
+    voice_segments: list[str] = None
     video_path: str = ""
     thumbnail_path: str = ""
     created_at: str = ""
@@ -26,12 +27,55 @@ class VideoProject:
     def __post_init__(self):
         if self.footage_paths is None:
             self.footage_paths = []
+        if self.voice_segments is None:
+            self.voice_segments = []
         if not self.created_at:
             self.created_at = datetime.utcnow().isoformat()
 
 
+class Manifest:
+    def __init__(self, project_dir: Path):
+        self.path = project_dir / "manifest.json"
+        self.data = self._load()
+
+    def _load(self) -> dict:
+        if self.path.exists():
+            with open(self.path) as f:
+                return json.load(f)
+        return {
+            "status": "started",
+            "steps": {},
+            "files": {},
+        }
+
+    def save(self):
+        with open(self.path, "w") as f:
+            json.dump(self.data, f, indent=2)
+
+    def step_done(self, step: str) -> bool:
+        return self.data["steps"].get(step) == "done"
+
+    def mark_step(self, step: str, status: str = "done"):
+        self.data["steps"][step] = status
+        self.save()
+
+    def add_file(self, category: str, path: str):
+        if category not in self.data["files"]:
+            self.data["files"][category] = []
+        if path not in self.data["files"][category]:
+            self.data["files"][category].append(path)
+        self.save()
+
+    def get_files(self, category: str) -> list[str]:
+        return self.data["files"].get(category, [])
+
+    def set_status(self, status: str):
+        self.data["status"] = status
+        self.save()
+
+
 class VideoPipeline:
-    def __init__(self, voice: str = None, voice_style: str = "documentary", is_short: bool = False, video_style: str = None, tts_engine: str = "auto", elevenlabs_voice_id: str = None, voice_speed: float = 1.15, talking_head: str = None, avatar_image: str = None, avatar_voice: str = "jane", avatar_character: str = "anika", avatar_style: str = "", use_photo_avatar: bool = True):
+    def __init__(self, voice: str = None, voice_style: str = "documentary", is_short: bool = False, video_style: str = None, tts_engine: str = "auto", elevenlabs_voice_id: str = None, voice_speed: float = 1.15, talking_head: str = None, avatar_image: str = None, avatar_voice: str = "jane", avatar_character: str = "anika", avatar_style: str = "", use_photo_avatar: bool = True, overlay_style: str = "pip"):
         self.script_gen = ScriptGenerator()
         self.voice = voice or "female_narrator"
         self.default_voice_style = voice_style
@@ -45,19 +89,23 @@ class VideoPipeline:
         self.avatar_character = avatar_character
         self.avatar_style = avatar_style
         self.use_photo_avatar = use_photo_avatar
+        self.overlay_style = overlay_style
+        is_philofab_style = video_style in ("turboencabulator", "philofabulator")
+        use_talking_head_default = talking_head is not None or is_philofab_style
         self.talking_head_mgr = TalkingHeadManager(
-            backend=talking_head or "auto",
+            backend=talking_head or "infinitetalk",
             avatar_voice=avatar_voice,
             avatar_character=avatar_character,
             avatar_style=avatar_style,
             use_photo_avatar=use_photo_avatar,
-        ) if talking_head else None
+        ) if use_talking_head_default else None
+        self.auto_talking_head = is_philofab_style
 
-        effective_voice_style = "turboencabulator" if video_style == "turboencabulator" else voice_style
+        effective_voice_style = "turboencabulator" if is_philofab_style else voice_style
         self.voice_gen = VoiceGenerator(self.voice, style=effective_voice_style)
 
         self.turbo_voice_gen = None
-        if video_style == "turboencabulator":
+        if is_philofab_style:
             if tts_engine == "azure-openai" or (tts_engine == "auto" and config.azure_openai_key):
                 self.turbo_voice_gen = AzureOpenAIAudioGenerator()
                 self.tts_engine = "azure-openai"
@@ -150,34 +198,53 @@ class VideoPipeline:
         script_format: str = "monologue",
         use_talking_head: bool = False,
         avatar_image: str = None,
+        resume_dir: str = None,
     ) -> VideoProject:
+        if self.auto_talking_head and not use_talking_head:
+            use_talking_head = True
         self.footage_mgr.used_assets = []
         project = VideoProject(topic=topic)
-        safe_topic = "".join(c if c.isalnum() or c in " -_" else "" for c in topic)[:50]
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        project_dir = Path(config.output_dir) / f"{timestamp}_{safe_topic.replace(' ', '_')}"
-        project_dir.mkdir(parents=True, exist_ok=True)
 
+        if resume_dir:
+            project_dir = Path(resume_dir)
+            if not project_dir.exists():
+                raise ValueError(f"Resume directory does not exist: {resume_dir}")
+            print(f"Resuming from: {project_dir}")
+        else:
+            safe_topic = "".join(c if c.isalnum() or c in " -_" else "" for c in topic)[:50]
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            project_dir = Path(config.output_dir) / f"{timestamp}_{safe_topic.replace(' ', '_')}"
+            project_dir.mkdir(parents=True, exist_ok=True)
+
+        self.footage_mgr.set_output_dir(str(project_dir))
+        manifest = Manifest(project_dir)
+
+        script_path = project_dir / "script.json"
         if script_file:
             print(f"[1/6] Loading script from: {script_file}")
             project.script = self._load_script(script_file)
+        elif manifest.step_done("script") and script_path.exists():
+            print(f"[1/6] Script already exists, loading...")
+            project.script = self._load_script(str(script_path))
         else:
             print(f"[1/6] Generating script for: {topic}")
-            project.script = self.script_gen.generate(topic, style, duration_minutes, script_format)
+            project.script = self.script_gen.generate(topic, style, duration_minutes, script_format, is_short=self.is_short)
+            manifest.mark_step("script")
 
         print(f"      Title: {project.script.title}")
         print(f"      Words: {project.script.word_count} (~{project.script.estimated_duration}s)")
 
-        script_path = project_dir / "script.json"
-        with open(script_path, "w") as f:
-            json.dump({
-                "title": project.script.title,
-                "hook": project.script.hook,
-                "segments": [{"text": s.text, "visual_cue": s.visual_cue} for s in project.script.segments],
-                "outro": project.script.outro,
-                "description": project.script.description,
-                "tags": project.script.tags,
-            }, f, indent=2)
+        if not script_path.exists():
+            with open(script_path, "w") as f:
+                json.dump({
+                    "title": project.script.title,
+                    "hook": project.script.hook,
+                    "segments": [{"text": s.text, "visual_cue": s.visual_cue} for s in project.script.segments],
+                    "outro": project.script.outro,
+                    "description": project.script.description,
+                    "tags": project.script.tags,
+                }, f, indent=2)
+        manifest.add_file("script", str(script_path))
 
         if script_only:
             print(f"\nScript-only complete: {script_path}")
@@ -213,15 +280,19 @@ class VideoPipeline:
             self.talking_head_mgr.get_backend() == "azure"
         )
 
-        if use_azure_avatar:
+        if manifest.step_done("voice") and Path(voice_path).exists():
+            print(f"[2/6] Voice already exists, loading...")
+            project.audio_path = voice_path
+            segment_dir = project_dir / "voice_segments"
+            if segment_dir.exists():
+                project.voice_segments = sorted([str(p) for p in segment_dir.glob("*.mp3")])
+        elif use_azure_avatar:
             print(f"[2/6] Skipping TTS (Azure Avatar handles voice + video together)")
         else:
             print(f"[2/6] Generating voiceover...")
 
-            if Path(voice_path).exists():
-                Path(voice_path).unlink()
-
-        if not use_azure_avatar and self.turbo_voice_gen and self.video_style == "turboencabulator":
+        is_philofab = self.video_style in ("turboencabulator", "philofabulator")
+        if not manifest.step_done("voice") and not use_azure_avatar and is_philofab:
             engine_name = self.tts_engine.upper()
             print(f"      Using {engine_name} TTS with emotional progression...")
             segments = [{"text": project.script.hook}]
@@ -238,14 +309,20 @@ class VideoPipeline:
             else:
                 segment_paths = self.turbo_voice_gen.generate_turboencabulator(segments, str(segment_dir))
 
+            project.voice_segments = segment_paths
             self._concatenate_audio(segment_paths, voice_path)
             print(f"      Voice saved with emotional progression: {voice_path}")
-        elif not use_azure_avatar:
+            manifest.mark_step("voice")
+            for seg_path in segment_paths:
+                manifest.add_file("voice_segments", seg_path)
+        elif not manifest.step_done("voice") and not use_azure_avatar:
             narration = project.script.full_narration
             await self.voice_gen.generate(narration, voice_path)
             print(f"      Voice saved: {voice_path}")
+            manifest.mark_step("voice")
 
         project.audio_path = voice_path
+        manifest.add_file("voice", voice_path)
 
         if voice_only:
             if use_azure_avatar:
@@ -273,6 +350,10 @@ class VideoPipeline:
 
         talking_head_video = None
         avatar_path = avatar_image or self.avatar_image
+        if not avatar_path:
+            default_avatar = Path(config.assets_dir) / "rachel_avatar.png"
+            if default_avatar.exists():
+                avatar_path = str(default_avatar)
         if use_talking_head and self.talking_head_mgr:
             if self.talking_head_mgr.available:
                 print(f"[4/7] Generating talking head video...")
@@ -288,18 +369,64 @@ class VideoPipeline:
                     project.audio_path = voice_path
                 elif avatar_path:
                     print(f"      Avatar image: {avatar_path}")
-                    self.talking_head_mgr.generate(
-                        avatar_path,
-                        project.audio_path,
-                        talking_head_video,
-                    )
+                    try:
+                        self.talking_head_mgr.generate(
+                            avatar_path,
+                            project.audio_path,
+                            talking_head_video,
+                            voice_segments=project.voice_segments if project.voice_segments else None,
+                        )
+                        if not Path(talking_head_video).exists():
+                            print(f"      Talking head generation failed - file not created")
+                            use_talking_head = False
+                    except Exception as e:
+                        print(f"      Talking head generation failed: {e}")
+                        use_talking_head = False
                 else:
                     print(f"      No avatar image provided for {backend} backend")
                     use_talking_head = False
 
-                if use_talking_head:
+                if use_talking_head and talking_head_video and Path(talking_head_video).exists():
                     project.footage_paths = [talking_head_video]
+                    project.video_path = talking_head_video
                     print(f"      Talking head generated: {talking_head_video}")
+
+                    if self.footage_mgr.use_dalle:
+                        print(f"[5/7] Generating DALL-E images for overlays...")
+                        visual_cues = [seg.visual_cue for seg in project.script.segments if seg.visual_cue]
+                        images_map = await self.footage_mgr.get_images_for_cues(visual_cues)
+
+                        from moviepy import AudioFileClip
+                        audio_clip = AudioFileClip(project.audio_path)
+                        total_duration = audio_clip.duration
+                        audio_clip.close()
+
+                        segment_images = []
+                        num_segments = len(project.script.segments)
+                        segment_duration = total_duration / num_segments if num_segments > 0 else 5
+
+                        for i, seg in enumerate(project.script.segments):
+                            if seg.visual_cue and seg.visual_cue in images_map:
+                                paths = images_map[seg.visual_cue]
+                                if paths:
+                                    segment_images.append({
+                                        "image_path": paths[0],
+                                        "start": i * segment_duration,
+                                        "duration": segment_duration,
+                                    })
+
+                        if segment_images and self.overlay_style != "none":
+                            print(f"[6/7] Compositing {len(segment_images)} image overlays ({self.overlay_style})...")
+                            composite_path = str(project_dir / "video.mp4")
+                            self.assembler.composite_with_overlays(
+                                talking_head_video,
+                                segment_images,
+                                composite_path,
+                                overlay_style=self.overlay_style,
+                            )
+                            project.video_path = composite_path
+                            project.footage_paths = [composite_path]
+                            print(f"      Final video: {composite_path}")
             else:
                 print(f"[4/7] Talking head requested but no backend available")
                 print(f"      Options:")
@@ -327,34 +454,35 @@ class VideoPipeline:
         elif not use_talking_head:
             print(f"[4/6] Skipping visuals (skip_footage=True)")
 
-        print(f"[5/6] Assembling video...")
-        video_path = str(project_dir / "video.mp4")
+        if not project.video_path:
+            print(f"[5/6] Assembling video...")
+            video_path = str(project_dir / "video.mp4")
 
-        key_phrase_timings = []
-        if project.script.key_phrases:
-            from moviepy import AudioFileClip
-            audio_clip = AudioFileClip(project.audio_path)
-            audio_duration = audio_clip.duration
-            audio_clip.close()
+            key_phrase_timings = []
+            if project.script.key_phrases:
+                from moviepy import AudioFileClip
+                audio_clip = AudioFileClip(project.audio_path)
+                audio_duration = audio_clip.duration
+                audio_clip.close()
 
-            phrases = project.script.key_phrases[:8]
-            interval = audio_duration / (len(phrases) + 1)
+                phrases = project.script.key_phrases[:8]
+                interval = audio_duration / (len(phrases) + 1)
 
-            for i, phrase in enumerate(phrases):
-                start_time = interval * (i + 1) - 1.0
-                key_phrase_timings.append({
-                    "text": phrase,
-                    "start": max(0, start_time),
-                    "duration": 2.5,
-                })
+                for i, phrase in enumerate(phrases):
+                    start_time = interval * (i + 1) - 1.0
+                    key_phrase_timings.append({
+                        "text": phrase,
+                        "start": max(0, start_time),
+                        "duration": 2.5,
+                    })
 
-        project.video_path = self.assembler.assemble(
-            project.audio_path,
-            project.footage_paths,
-            video_path,
-            key_phrases=key_phrase_timings,
-        )
-        print(f"      Video saved: {project.video_path}")
+            project.video_path = self.assembler.assemble(
+                project.audio_path,
+                project.footage_paths,
+                video_path,
+                key_phrases=key_phrase_timings,
+            )
+            print(f"      Video saved: {project.video_path}")
 
         print(f"[6/6] Creating thumbnail...")
         thumbnail_path = str(project_dir / "thumbnail.png")
@@ -373,22 +501,20 @@ class VideoPipeline:
         if attribution:
             full_description += f"\n\n---\n{attribution}"
 
-        manifest_path = project_dir / "manifest.json"
-        with open(manifest_path, "w") as f:
-            json.dump({
-                "topic": project.topic,
-                "title": project.script.title,
-                "description": full_description,
-                "tags": project.script.tags,
-                "video_path": project.video_path,
-                "thumbnail_path": project.thumbnail_path,
-                "audio_path": project.audio_path,
-                "created_at": project.created_at,
-                "attribution": {
-                    "text": attribution,
-                    "links": attribution_links,
-                },
-            }, f, indent=2)
+        manifest.data["topic"] = project.topic
+        manifest.data["title"] = project.script.title
+        manifest.data["description"] = full_description
+        manifest.data["tags"] = project.script.tags
+        manifest.data["video_path"] = project.video_path
+        manifest.data["thumbnail_path"] = project.thumbnail_path
+        manifest.data["audio_path"] = project.audio_path
+        manifest.data["created_at"] = project.created_at
+        manifest.data["attribution"] = {
+            "text": attribution,
+            "links": attribution_links,
+        }
+        manifest.set_status("complete")
+        manifest.save()
 
         print(f"\nVideo complete: {project.video_path}")
         if attribution:

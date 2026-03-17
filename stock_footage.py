@@ -262,13 +262,116 @@ class AIImageGenerator:
         return ""
 
 
+class DalleImageGenerator:
+    def __init__(self, output_dir: str = None):
+        self.output_dir = Path(output_dir) if output_dir else None
+        self.endpoint = config.azure_openai_foundry_endpoint
+        self.key = config.azure_openai_foundry_key
+        self.last_request_time = 0
+        self.min_delay = 10
+        self.max_retries = 3
+
+    def set_output_dir(self, output_dir: str):
+        self.output_dir = Path(output_dir) / "dalle_images"
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def available(self) -> bool:
+        return bool(self.endpoint and self.key)
+
+    def _enhance_prompt(self, visual_cue: str, vertical: bool = False) -> str:
+        return f"{visual_cue}. High quality digital illustration, professional video thumbnail style, dramatic lighting, no text or watermarks"
+
+    async def generate(self, visual_cue: str, output_path: str = None, vertical: bool = False) -> str:
+        if not self.available:
+            return ""
+
+        if not self.output_dir:
+            raise RuntimeError("DalleImageGenerator.output_dir not set. Call set_output_dir() first.")
+
+        prompt_hash = hashlib.md5(visual_cue.encode()).hexdigest()[:12]
+        suffix = "_v" if vertical else ""
+        if output_path is None:
+            output_path = str(self.output_dir / f"dalle_{prompt_hash}{suffix}.png")
+
+        if Path(output_path).exists():
+            return output_path
+
+        import time
+        import base64
+
+        enhanced_prompt = self._enhance_prompt(visual_cue, vertical)
+        size = "1024x1024"
+        gen_url = f"{self.endpoint}openai/deployments/gpt-image/images/generations?api-version=2024-05-01-preview"
+
+        for attempt in range(self.max_retries):
+            elapsed = time.time() - self.last_request_time
+            if elapsed < self.min_delay:
+                await asyncio.sleep(self.min_delay - elapsed)
+
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        gen_url,
+                        headers={"api-key": self.key, "Content-Type": "application/json"},
+                        json={
+                            "prompt": enhanced_prompt,
+                            "n": 1,
+                            "size": size,
+                            "quality": "high"
+                        },
+                        timeout=aiohttp.ClientTimeout(total=120)
+                    ) as resp:
+                        self.last_request_time = time.time()
+                        if resp.status == 200:
+                            result = await resp.json()
+                            img_b64 = result.get("data", [{}])[0].get("b64_json")
+                            if img_b64:
+                                with open(output_path, "wb") as f:
+                                    f.write(base64.b64decode(img_b64))
+                                return output_path
+                        elif resp.status == 429:
+                            retry_after = int(resp.headers.get("Retry-After", 30 * (attempt + 1)))
+                            print(f"      Rate limited, waiting {retry_after}s (attempt {attempt + 1}/{self.max_retries})")
+                            await asyncio.sleep(retry_after)
+                            continue
+                        else:
+                            error_text = await resp.text()
+                            print(f"      DALL-E error ({resp.status}): {error_text[:100]}")
+                            break
+            except Exception as e:
+                print(f"      DALL-E exception: {e}")
+                if attempt < self.max_retries - 1:
+                    await asyncio.sleep(10 * (attempt + 1))
+                    continue
+                break
+
+        return ""
+
+    async def generate_batch(self, visual_cues: list[str], vertical: bool = False) -> dict[str, str]:
+        results = {}
+        for i, cue in enumerate(visual_cues):
+            print(f"      Generating image {i+1}/{len(visual_cues)}: {cue[:50]}...")
+            path = await self.generate(cue, vertical=vertical)
+            if path:
+                results[cue] = path
+        return results
+
+
 class StockFootageManager:
-    def __init__(self, vertical: bool = False):
+    def __init__(self, vertical: bool = False, use_dalle: bool = True, output_dir: str = None):
         self.pixabay = PixabayClient()
         self.pexels = PexelsClient()
         self.ai_gen = AIImageGenerator()
+        self.dalle_gen = DalleImageGenerator()
+        self.use_dalle = use_dalle and self.dalle_gen.available
         self.used_assets: list[dict] = []
         self.vertical = vertical
+        if output_dir:
+            self.set_output_dir(output_dir)
+
+    def set_output_dir(self, output_dir: str):
+        self.dalle_gen.set_output_dir(output_dir)
 
     def get_attribution_text(self) -> str:
         if not self.used_assets:
@@ -316,8 +419,24 @@ class StockFootageManager:
 
         return footage
 
-    async def get_images_for_cues(self, visual_cues: list[str], images_per_cue: int = 2) -> dict[str, list[str]]:
+    async def get_images_for_cues(self, visual_cues: list[str], images_per_cue: int = 1) -> dict[str, list[str]]:
         images = {}
+
+        if self.use_dalle:
+            print(f"      Using DALL-E for {len(visual_cues)} visual cues...")
+            for i, cue in enumerate(visual_cues):
+                print(f"      [{i+1}/{len(visual_cues)}] {cue[:60]}...")
+                path = await self.dalle_gen.generate(cue, vertical=self.vertical)
+                if path:
+                    images[cue] = [path]
+                    self.used_assets.append({
+                        "id": hashlib.md5(cue.encode()).hexdigest()[:12],
+                        "source": "dalle",
+                        "type": "image",
+                    })
+                else:
+                    images[cue] = []
+            return images
 
         for cue in visual_cues:
             search_terms = self._extract_search_terms(cue)

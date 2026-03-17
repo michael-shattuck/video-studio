@@ -79,8 +79,8 @@ async def main():
         "--style",
         "-s",
         default="educational",
-        choices=["educational", "storytelling", "listicle", "documentary", "motivational", "relaxing", "turboencabulator"],
-        help="Video style (turboencabulator = absurdist doublespeak satire)",
+        choices=["educational", "storytelling", "listicle", "documentary", "motivational", "relaxing", "turboencabulator", "philofabulator"],
+        help="Video style (philofabulator/turboencabulator = Cunk meets confident nonsense)",
     )
     parser.add_argument(
         "--duration",
@@ -183,13 +183,19 @@ async def main():
     parser.add_argument(
         "--talking-head",
         action="store_true",
-        help="Generate talking head video from avatar image",
+        default=True,
+        help="Generate talking head video (default: enabled)",
+    )
+    parser.add_argument(
+        "--no-talking-head",
+        action="store_true",
+        help="Disable talking head, use stock footage instead",
     )
     parser.add_argument(
         "--avatar",
         type=str,
-        default=None,
-        help="Path to avatar image for talking head generation",
+        default="assets/rachel_avatar.png",
+        help="Path to avatar image for talking head generation (default: Rachel)",
     )
     parser.add_argument(
         "--talking-head-backend",
@@ -224,6 +230,18 @@ async def main():
         "--standard-avatar",
         action="store_true",
         help="Use standard avatar instead of photo avatar",
+    )
+    parser.add_argument(
+        "--overlay-style",
+        default="pip",
+        choices=["pip", "cutaway", "split", "kenburns", "none"],
+        help="Image overlay style for talking head: pip (picture-in-picture), cutaway (full screen briefly), split (side by side), kenburns (zoom effect), none",
+    )
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="Resume from existing project folder (e.g., output/20260316_185956_The_war_in_Iran)",
     )
 
     args = parser.parse_args()
@@ -269,12 +287,13 @@ async def main():
         tts_engine=args.tts_engine,
         elevenlabs_voice_id=args.elevenlabs_voice_id,
         voice_speed=args.speed,
-        talking_head=args.talking_head_backend if args.talking_head else None,
+        talking_head=args.talking_head_backend if (args.talking_head and not args.no_talking_head) else None,
         avatar_image=args.avatar,
         avatar_voice=args.avatar_voice,
         avatar_character=args.avatar_character,
         avatar_style=args.avatar_style,
         use_photo_avatar=use_photo_avatar,
+        overlay_style=args.overlay_style,
     )
 
     if args.from_niche_finder:
@@ -310,8 +329,9 @@ async def main():
             approve_script=args.approve_script,
             script_file=args.script_file,
             script_format=args.format,
-            use_talking_head=args.talking_head,
+            use_talking_head=args.talking_head and not args.no_talking_head,
             avatar_image=args.avatar,
+            resume_dir=args.resume,
         )
 
     else:

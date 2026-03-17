@@ -29,7 +29,7 @@ class Config:
     azure_storage_container: str = field(default_factory=lambda: os.getenv("AZURE_STORAGE_CONTAINER", "media"))
 
     runpod_api_key: str = field(default_factory=lambda: os.getenv("RUNPOD_API_KEY", ""))
-    runpod_infinitetalk_endpoint: str = field(default_factory=lambda: os.getenv("RUNPOD_INFINITETALK_ENDPOINT", "smu7s0ky1u8cie"))
+    runpod_infinitetalk_endpoint: str = field(default_factory=lambda: os.getenv("RUNPOD_INFINITETALK_ENDPOINT", "1zjqgn9h146ci3"))
 
     output_dir: str = field(default_factory=lambda: str(Path(__file__).parent / "output"))
     assets_dir: str = field(default_factory=lambda: str(Path(__file__).parent / "assets"))

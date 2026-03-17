@@ -184,8 +184,11 @@ class ScriptGenerator:
         self.researcher = TopicResearcher()
 
     def generate(self, topic: str, style: str = "educational", duration_minutes: int = 8, script_format: str = "monologue", is_short: bool = False) -> VideoScript:
+        if style == "philofabulator":
+            style = "turboencabulator"
+
         if is_short:
-            return self.generate_short(topic, style, duration_seconds=min(duration_minutes * 60, 60))
+            return self.generate_short(topic, style, duration_seconds=45)
 
         target_words = duration_minutes * config.words_per_minute
 
@@ -214,6 +217,9 @@ class ScriptGenerator:
         return self._parse_response(response)
 
     def generate_short(self, topic: str, style: str = "turboencabulator", duration_seconds: int = 45) -> VideoScript:
+        if style == "philofabulator":
+            style = "turboencabulator"
+
         target_words = int(duration_seconds * config.words_per_minute / 60)
 
         if style == "turboencabulator":
@@ -328,25 +334,30 @@ RESEARCH TO USE (weave throughout, not just at the start):
 """
 
         nonsense_techniques = [
-            "Compound fake words: combine real prefixes/suffixes into plausible-sounding nonsense",
-            "False precision: suspiciously specific numbers (73.847%, a study of 2,847 participants)",
-            "Invented anecdotes: stories that start normal and go nowhere ('I once met a guy in Des Moines who...' then never finish the point)",
-            "Non-sequitur transitions: connect unrelated points with confident 'and that's exactly why'",
-            "Appeal to fake authority: cite studies or experts that sound real but aren't",
-            "Circular logic: prove things by restating them differently",
-            "Lost train of thought: Rachel loses her point mid-sentence, then pretends it was intentional ('I lost my train of thought. That was the point.')",
-            "Absurd analogies: compare the topic to something completely unrelated and act like it's profound",
-            "Fake etymologies: confidently explain word origins that are completely made up",
-            "The pivot that isn't: seem to take one side, then the other, then neither, all in one breath",
+            "CUNK: State obviously wrong facts about basic things with total confidence. 'The wheel was invented in 1987 by a man called Steve Wheel.' The audience KNOWS it's wrong - that's the joke.",
+            "CUNK: Ask questions that sound deep but are actually idiotic. 'If the past already happened, why do we keep talking about it?' Deadpan, like it's genuinely puzzling.",
+            "CUNK: Fundamentally misunderstand how basic things work. 'The economy is basically a big shop where countries buy each other.'",
+            "CUNK: Confidently define common words incorrectly. 'Democracy comes from the Greek word demo meaning people and cracy meaning has to put up with.'",
+            "CUNK: Explain something by just restating it. 'War is basically when two countries decide to have a war with each other.'",
+            "CUNK: Ask a rhetorical question, then actually try to answer it badly. 'But who are we to judge? I mean, I'm Rachel, that's who I am, but in general...'",
+            "FABULATOR: Suspiciously specific numbers (73.847%, a study of 2,847 participants)",
+            "FABULATOR: Connect unrelated points with confident 'and that's exactly why'",
+            "FABULATOR: Circular logic - prove things by restating them differently, then act like you proved something",
+            "FABULATOR: Absurd analogies - compare the topic to something completely unrelated and act like it's profound",
+            "FABULATOR: Fake etymologies - confidently explain word origins that are completely made up",
+            "FABULATOR: The pivot that isn't - seem to take one side, then the other, then neither, all in one breath",
+            "FABULATOR: Appeal to fake authority - cite studies or experts that sound real but aren't",
         ]
         chosen_techniques = random.sample(nonsense_techniques, 5)
 
         comedy_styles = [
+            "Philomena Cunk asking an expert obvious questions with a straight face",
+            "documentary narrator who confidently gets basic history wrong",
             "corporate consultant who went off the rails",
             "TED talk that slowly becomes a fever dream",
-            "documentary narrator who starts questioning reality",
             "news anchor having an existential crisis on air",
             "professor who forgot what class they're teaching",
+            "tour guide making up facts because they forgot the real ones",
         ]
         chosen_style = random.choice(comedy_styles)
 
@@ -404,14 +415,31 @@ EMOTIONAL RANGE (CONTEXTUAL - based on content, NOT linear progression):
 - Use [laughs] naturally, not forced
 - VARY the emotions throughout based on what's being said
 
-TURBOENCABULATOR TECHNIQUES (start subtle, escalate to COMICAL by the end):
+COMEDY TECHNIQUES - THE PHILOFABULATOR STYLE:
 
-The script MUST become ABSURD and FUNNY. By the final third, Rachel should be confidently spouting made-up jargon and circular logic. The audience should be BELLY LAUGHING at how confident she sounds while saying nothing.
+PHILOFABULATOR = "lover of fabrication" - the art of confident wrongness delivered with sincerity.
+
+TWO INGREDIENTS:
+
+1. CUNK (audience feels SMART):
+   - Confidently wrong about OBVIOUS things everyone knows
+   - "The Romans invented roads in the year fifty" - clearly wrong, clearly funny
+   - Audience laughs because THEY know the truth and Rachel doesn't
+   - Deadpan sincerity is key
+
+2. FABULATOR (audience is IMPRESSED then CONFUSED):
+   - Sounds intellectual and plausible at first
+   - "Studies show that 73.8% of economic fluctuations correlate with..." then goes nowhere
+   - Fake precision, circular logic, confident non-conclusions
+   - Audience thinks "wait... is that real?" then realizes it's nonsense
+
+THE PHILOFABULATOR BLEND: Start with Fabulator (sounds smart), escalate to Cunk (obviously wrong). Rachel seamlessly mixes fake intellectualism with basic misunderstandings. She LOVES making things up - she's a Philofabulator.
 
 GOALS:
 1. EDUCATIONAL: The first half teaches real facts. People should learn something.
-2. COMICAL: The second half is genuinely funny. Absurd conclusions, made-up words, confident nonsense.
+2. BELLY LAUGHS: The second half is OBVIOUSLY funny - not clever-funny, not confusing-funny, OBVIOUSLY funny. Wrong facts that everyone knows are wrong. The audience should feel smart.
 3. AMBIGUOUS: Rachel seems to take a side, but it's impossible to tell which when you think about it.
+4. CUNK ENERGY: Deadpan delivery of confident wrongness. She's not trying to be funny - she genuinely thinks she's making good points. That's what makes it hilarious.
 
 BANNED PHRASES (NEVER USE THESE - they've been overused):
 - "sandwich" or "policy" in the same sentence
@@ -428,13 +456,16 @@ BANNED PHRASES (NEVER USE THESE - they've been overused):
 - "if you understand that, you understand nothing"
 - "that's not [X], it's [Y]" where X and Y mean the same thing
 
-CREATE FRESH ABSURDITY:
-Instead of copying patterns, INVENT NEW:
-- Made-up compound words using prefixes/suffixes not listed above
-- Fake institutions with names that sound plausible but aren't real
-- Circular logic that's specific to THIS topic
-- Absurd analogies using objects/concepts relevant to THIS topic
-- Fake statistics with oddly specific numbers
+CREATE FRESH ABSURDITY (PHILOFABULATOR STYLE):
+Mix OBVIOUS wrongness (Cunk) with confident pseudo-intellectualism (Fabulator):
+- CUNK: Wrong dates - "The internet was invented in 1776 by Benjamin Franklin"
+- CUNK: Wrong people - "As Shakespeare once said... actually I think that was Beyonce"
+- CUNK: Stupid questions - "But if money isn't real, why can't I just print my own?" (asked sincerely)
+- CUNK: Tautologies - "The thing about war is... it's basically a type of conflict. Between two sides. Who are at war."
+- FABULATOR: Fake statistics with oddly specific numbers (a study of 2,847 participants found that 73.847% of...)
+- FABULATOR: Fake institutions with names that sound plausible but aren't real
+- FABULATOR: Absurd analogies using objects/concepts relevant to THIS topic
+- FABULATOR: Circular logic that's specific to THIS topic
 
 VARIETY TECHNIQUES (use 2-3 per episode, rotate which ones):
 {chr(10).join(f"- {t}" for t in chosen_techniques)}
@@ -448,20 +479,21 @@ If a phrase sounds like something you've written before, DON'T USE IT.
 THE KEY: Rachel doesn't realize she's being absurd. She delivers nonsense with the same confidence as facts. That's the comedy.
 
 ESCALATION ARC:
-- First 40%: Real facts, real research, calm and informative
-- Middle 30%: Start mixing in confident non-positions, vague profundity
-- Final 30%: FULL TURBOENCABULATOR - made-up words, circular logic, absurd conclusions delivered passionately
+- First 40%: Real facts, real research, calm and informative - Rachel sounds credible
+- Middle 30%: Mix in FABULATOR elements - fake precision, circular logic, confident non-positions. Audience thinks "hmm, is she making sense?"
+- Final 30%: Add CUNK elements - obviously wrong facts, stupid questions, tautologies. Audience is now LAUGHING because they know more than Rachel. By the end, she's a FULL PHILOFABULATOR - seamlessly mixing "According to a 2019 study of 2,847 participants" with "which is why the pyramids were invented in 1987."
 
 CRITICAL RULES:
 1. Rachel SEEMS to take a side - she's passionate, she's confident - but when you think about it, you can't tell which side she's actually on. That's the magic.
 2. Emotions are CONTEXTUAL - match the content, not the position in the script
 3. Each episode should feel DIFFERENT - vary the comedy style, the structure, the techniques
 4. First half = EDUCATIONAL. People should learn real facts about the topic.
-5. Second half = COMICAL. Escalate to absurdity. Belly laughs by the end.
-6. THE ENDING MUST BE GENUINELY FUNNY - not just jargon, but absurd situations and logic
+5. Second half = PHILOFABULATOR MODE. Mix Cunk-style obvious wrongness with Fabulator-style confident pseudo-intellectualism.
+6. THE ENDING MUST BE GENUINELY FUNNY - blend obviously wrong facts with circular logic and fake profundity
 7. NO stage directions like [scoffs] [gasps] - only emotional markers for TTS
-8. INVENT NEW FAKE JARGON each time - never reuse terms between episodes
-9. Don't be predictable - vary which techniques you use, how you escalate, where the absurdity appears
+8. BALANCE: Some jokes should be OBVIOUSLY wrong (Cunk - audience feels smart), some should be plausible-sounding nonsense (Fabulator - audience is impressed then confused)
+9. DEADPAN IS KEY - Rachel doesn't know she's being funny. She's a sincere Philofabulator. That's what makes it hilarious.
+10. TEST FOR CUNK: Audience should IMMEDIATELY know it's wrong. TEST FOR FABULATOR: Audience should think "wait... is that real?" then realize it's not.
 
 EMOTIONAL MARKERS FOR TTS (use these inline):
 [excited] [frustrated] [calm] [passionate] [reflective] [sad] [angry] [hopeful] [friendly] [whispering] [shouting]
@@ -486,46 +518,39 @@ Return ONLY valid JSON."""
         import random
 
         short_formats = [
-            "hot_take",
+            "deep_dive",
             "explainer",
-            "reaction",
-            "rant",
-            "conspiracy",
+            "hot_take",
+            "revelation",
         ]
         chosen_format = random.choice(short_formats)
 
         format_instructions = {
-            "hot_take": """Rachel delivers a spicy take that sounds profound but means nothing.
-Structure: Bold claim → fake evidence → circular conclusion
-Example energy: "People say X is bad. But here's what they don't tell you..." → nonsense → "And THAT'S why X is... well, you know."
+            "deep_dive": """Rachel digs into the topic like a real journalist... then slowly loses the plot.
+Structure: Real fact → another real fact → wait is that real? → definitely not real → PASSIONATE absurd conclusion
+Example: "The economy grew 2.3% last quarter. Experts say this indicates... [real] → which means that by 2030... [plausible] → and THAT'S why the moon is actually a subscription service."
 """,
-            "explainer": """Rachel "explains" something with fake expertise.
-Structure: "Let me break this down..." → increasingly absurd "facts" → ends before making a point
-Example energy: Starts reasonable, each sentence gets 10% more insane, cuts off mid-thought
+            "explainer": """Rachel breaks down the topic with genuine expertise... that progressively deteriorates.
+Structure: "Here's the thing about X..." → real info → slightly wrong → obviously wrong → ends with PASSION
+Example: "Let me explain inflation. When money... [correct] → which started in 1923... [wrong year] → invented by a man called Steven Economy... [absurd] → and THAT'S why I..."
 """,
-            "reaction": """Rachel reacts to a "controversial take" (that she made up).
-Structure: "Someone said..." → outraged response → accidentally agrees → confused
-Example energy: Performative shock that reveals she has no actual position
+            "hot_take": """Rachel has a TAKE. Sounds smart at first. Gets progressively unhinged.
+Structure: Real premise → builds logically → logic breaks down → PASSIONATE nonsense conclusion
+Example: "Everyone's arguing about X but nobody mentions... [real point] → studies show... [fake stat] → which PROVES... [circular logic] → and that's why I..."
 """,
-            "rant": """Rachel goes OFF about something trivial as if it's world-ending.
-Structure: Minor grievance → escalates to cosmic importance → ends abruptly
-Example energy: Maximum passion, zero substance
-""",
-            "conspiracy": """Rachel connects dots that don't exist.
-Structure: "Notice how..." → fake pattern → absurd conclusion delivered as revelation
-Example energy: Hushed intensity building to "open your eyes" moment
+            "revelation": """Rachel discovers something "nobody talks about." Starts real, ends absurd.
+Structure: "Nobody's saying this but..." → actual true thing → related true thing → unrelated false thing → MIND-BLOWN delivery
+Example: "Why isn't anyone talking about... [real issue] → the data shows... [real] → which connects to... [fake] → OH MY GOD that's why I..."
 """,
         }
 
         hooks = [
-            f"POV: someone asks you about {topic}",
-            f"Nobody's talking about this {topic} thing",
-            f"The {topic} discourse is WILD right now",
-            f"I need to talk about {topic}",
-            f"Hot take on {topic}",
-            f"Why is nobody saying this about {topic}",
-            f"{topic}? Let me explain.",
-            f"They don't want you to know this about {topic}",
+            f"Okay but {topic}? Let me explain.",
+            f"The thing about {topic} that nobody mentions",
+            f"I've been researching {topic} and...",
+            f"Can we talk about {topic} for a second?",
+            f"Here's what they don't tell you about {topic}",
+            f"{topic}. Let me break this down.",
         ]
         chosen_hook = random.choice(hooks)
 
@@ -534,30 +559,50 @@ Example energy: Hushed intensity building to "open your eyes" moment
 FORMAT: {chosen_format}
 {format_instructions[chosen_format]}
 
-TARGET: {target_words} words ({duration_seconds} seconds)
+**STRICT WORD LIMIT: {target_words} words MAXIMUM. This is {duration_seconds} seconds of speech.**
+**DO NOT EXCEED {target_words} WORDS. Count them. Keep it SHORT.**
+
 HOOK STYLE: "{chosen_hook}"
 
+PHILOFABULATOR STYLE FOR SHORTS:
+The short MUST follow this arc:
+1. START REAL: First 20% is ACTUALLY TRUE. Real facts. Sounds like a legit explainer.
+2. SLIGHT DRIFT: Next 30% is mostly true but something feels slightly off...
+3. FULL PHILOFABULATOR: Final 50% descends into confident wrongness and circular logic
+4. PASSIONATE ENDING: Rachel delivers the absurd conclusion with MAXIMUM CONVICTION
+
+THE LOOP ENDING (CRITICAL):
+The final phrase must SOUND like it could lead back to the beginning, creating a seamless TikTok loop.
+VARY THE ENDINGS - don't always use the same phrase:
+- "...and that's why..."
+- "...which is exactly..."
+- "...so when you think about..."
+- "...and honestly..."
+- "...because at the end of the day..."
+- "...which proves my point that..."
+- "...so the next time someone says..."
+- Just trail off mid-sentence
+The goal: viewers watch it 2-3 times before realizing it loops. Don't be obvious about it.
+
 WHO IS RACHEL (SHORT-FORM VERSION):
-Same Rachel from the podcast but optimized for shorts:
-- NO intro, NO "welcome back" - hook immediately
-- Speaks fast, cuts herself off, restarts thoughts
-- Uses TikTok speech patterns: "like," "literally," "okay but," "no because"
-- Delivers nonsense with main-character confidence
-- Ends abruptly (often mid-sentence or on a non-conclusion)
+- Starts SERIOUS - sounds like a real explainer/news clip
+- Gets progressively more unhinged but doesn't know it
+- Uses TikTok speech: "like," "literally," "okay but," "no because"
+- Ends PASSIONATE - she believes the absurd conclusion completely
+- The passion at the end is KEY - she's not deadpan, she's FIRED UP about nonsense
 
 STRUCTURE:
-1. HOOK (first 2 seconds): Grab attention immediately. No pleasantries.
-2. BUILD (next 70%): Escalate quickly. Each sentence more absurd than the last.
-3. END (final moment): Cut off at peak absurdity OR land on a "conclusion" that means nothing.
+1. HOOK (first 3 seconds): Sound legitimate. Real topic energy.
+2. BUILD (next 50%): Start with real facts. Slowly drift into wrongness.
+3. CLIMAX (final 30%): PASSIONATE delivery of absurd conclusion. Rachel is HEATED.
+4. LOOP (final words): Cut off mid-phrase in a way that loops to the start.
 
 CRITICAL RULES:
-1. NO INTRO - start mid-thought if needed
-2. NO OUTRO - end abruptly, leave them wanting more
-3. FAST escalation - no time for setup, get weird immediately
-4. ONE "take" that sounds like a position but isn't
-5. Maximum confidence, zero commitment
-6. Use filler words naturally: "like," "literally," "wait," "okay but"
-7. Can restart mid-sentence: "It's not even-- okay wait, let me--"
+1. START REAL - viewers should think "oh this is actually informative" for the first few seconds
+2. PROGRESSIVE DESCENT - each sentence 10% more absurd than the last
+3. PASSIONATE ENDING - Rachel must sound FIRED UP, not deadpan, when delivering the absurd conclusion
+4. LOOP ENDING - final phrase must create a seamless loop back to the hook
+5. NO sudden jumps - the descent into absurdity must feel gradual
 
 EMOTIONAL MARKERS:
 [excited] [frustrated] [passionate] [whispering] [shouting] [confused]
@@ -573,7 +618,7 @@ Return JSON:
     "title": "Short punchy title",
     "hook": "",
     "segments": [
-        {{"text": "[marker] Fast dialogue...", "visual_cue": "Visual"}}
+        {{"text": "[emotional_marker] Segment text...", "visual_cue": "Visual description for DALL-E image"}}
     ],
     "outro": "",
     "thumbnail_text": "2-3 words",
@@ -582,7 +627,7 @@ Return JSON:
     "key_phrases": ["Best line from the short"]
 }}
 
-Return ONLY valid JSON. Make it PUNCHY."""
+STRICT: Keep total under {target_words} words. Return ONLY valid JSON."""
 
     def _standard_shortform_prompt(self, topic: str, target_words: int, duration_seconds: int) -> str:
         return f"""Create a TikTok/YouTube Short script about: {topic}

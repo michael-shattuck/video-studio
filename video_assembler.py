@@ -11,6 +11,7 @@ from moviepy import (
     CompositeVideoClip,
     concatenate_videoclips,
     ColorClip,
+    vfx,
 )
 
 from .config import config
@@ -188,6 +189,83 @@ class VideoAssembler:
             phrase_clips.append(txt)
 
         return CompositeVideoClip([video] + phrase_clips)
+
+    def composite_with_overlays(
+        self,
+        base_video_path: str,
+        segment_images: list[dict],
+        output_path: str,
+        overlay_style: str = "pip",
+    ) -> str:
+        base = VideoFileClip(base_video_path)
+        overlay_clips = []
+
+        for seg in segment_images:
+            image_path = seg.get("image_path")
+            start_time = seg.get("start", 0)
+            duration = seg.get("duration", 5)
+
+            if not image_path or not Path(image_path).exists():
+                continue
+
+            img = ImageClip(image_path)
+
+            if overlay_style == "pip":
+                pip_width = int(self.config.width * 0.35)
+                img = img.resized(width=pip_width)
+                margin = 30
+                overlay_duration = min(duration - 1, duration * 0.8)
+                img = img.with_duration(overlay_duration)
+                img = img.with_effects([vfx.CrossFadeIn(0.3), vfx.CrossFadeOut(0.3)])
+                img = img.with_start(start_time + 0.5)
+                img = img.with_position((self.config.width - pip_width - margin, margin))
+
+            elif overlay_style == "cutaway":
+                img = self._fit_clip(img)
+                cutaway_duration = min(2.5, duration * 0.4)
+                img = img.with_duration(cutaway_duration)
+                img = img.with_effects([vfx.CrossFadeIn(0.2), vfx.CrossFadeOut(0.2)])
+                img = img.with_start(start_time + duration * 0.3)
+
+            elif overlay_style == "split":
+                half_width = self.config.width // 2
+                img = img.resized(width=half_width)
+                img_height = int(half_width * img.h / img.w)
+                y_pos = (self.config.height - img_height) // 2
+                img = img.with_duration(duration)
+                img = img.with_start(start_time)
+                img = img.with_position((half_width, y_pos))
+
+            elif overlay_style == "kenburns":
+                img = self._fit_clip(img)
+                img = img.with_duration(duration)
+                img = img.resized(lambda t: 1 + 0.03 * t)
+                img = img.with_effects([vfx.CrossFadeIn(0.4), vfx.CrossFadeOut(0.4)])
+                img = img.with_start(start_time)
+                img = img.with_position("center")
+
+            overlay_clips.append(img)
+
+        if overlay_clips:
+            final = CompositeVideoClip([base] + overlay_clips)
+        else:
+            final = base
+
+        final.write_videofile(
+            output_path,
+            fps=self.config.fps,
+            codec="libx264",
+            audio_codec="aac",
+            threads=4,
+            preset="medium",
+        )
+
+        base.close()
+        final.close()
+        for clip in overlay_clips:
+            clip.close()
+
+        return output_path
 
     def create_thumbnail(
         self,

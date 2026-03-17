@@ -11,7 +11,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .config import config
 
 CHUNK_DURATION_SEC = 30
-RUNPOD_ENDPOINT = "smu7s0ky1u8cie"
+RUNPOD_ENDPOINT = "1zjqgn9h146ci3"
+MAX_CHUNK_DURATION_SEC = 45
 
 
 @dataclass
@@ -169,7 +170,7 @@ class InfiniteTalkGenerator:
     def _split_audio(self, audio_path: str, output_dir: Path) -> list[str]:
         duration = self._get_audio_duration(audio_path)
 
-        if duration <= CHUNK_DURATION_SEC:
+        if duration <= MAX_CHUNK_DURATION_SEC:
             return [str(audio_path)]
 
         chunks = []
@@ -187,6 +188,7 @@ class InfiniteTalkGenerator:
             idx += 1
 
         return chunks
+
 
     def _upload_to_blob(self, file_path: str, blob_name: str) -> str:
         from azure.storage.blob import BlobServiceClient, ContentSettings
@@ -276,7 +278,7 @@ class InfiniteTalkGenerator:
         audio_path: str,
         output_path: str,
         prompt: str = "A person speaking naturally",
-        max_workers: int = 2,
+        voice_segments: list[str] = None,
     ) -> str:
         if not self.available:
             raise RuntimeError("RunPod API key not configured")
@@ -284,15 +286,30 @@ class InfiniteTalkGenerator:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        duration = self._get_audio_duration(audio_path)
-        print(f"    InfiniteTalk: {duration:.1f}s audio")
+        project_dir = output_path.parent
+        videos_dir = project_dir / "video_chunks"
+        videos_dir.mkdir(exist_ok=True)
 
-        image_name = f"avatar_{int(time.time())}.png"
-        image_url = self._upload_to_blob(image_path, image_name)
+        if voice_segments:
+            chunks = [str(p) for p in voice_segments if Path(p).exists()]
+            print(f"    InfiniteTalk: {len(chunks)} voice segments (sentence-aligned)")
+        else:
+            duration = self._get_audio_duration(audio_path)
+            print(f"    InfiniteTalk: {duration:.1f}s audio")
 
-        if duration <= CHUNK_DURATION_SEC:
+            if duration <= MAX_CHUNK_DURATION_SEC:
+                chunks = [str(audio_path)]
+            else:
+                chunks_dir = project_dir / "audio_chunks"
+                chunks_dir.mkdir(exist_ok=True)
+                chunks = self._split_audio(audio_path, chunks_dir)
+                print(f"    Split into {len(chunks)} chunks (fallback - no voice segments)")
+
+        if len(chunks) == 1:
+            image_name = f"avatar_{int(time.time())}.png"
+            image_url = self._upload_to_blob(image_path, image_name)
             audio_name = f"audio_{int(time.time())}.wav"
-            audio_url = self._upload_to_blob(audio_path, audio_name)
+            audio_url = self._upload_to_blob(chunks[0], audio_name)
 
             job_id = self._submit_job(image_url, audio_url, prompt)
             print(f"    Job submitted: {job_id}")
@@ -307,41 +324,30 @@ class InfiniteTalkGenerator:
 
             return str(output_path)
 
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
-            chunks_dir = tmp_path / "chunks"
-            videos_dir = tmp_path / "videos"
-            chunks_dir.mkdir()
-            videos_dir.mkdir()
+        image_name = f"avatar_{int(time.time())}.png"
+        image_url = self._upload_to_blob(image_path, image_name)
+        video_files = {}
 
-            chunks = self._split_audio(audio_path, chunks_dir)
-            print(f"    Split into {len(chunks)} chunks")
+        for idx, chunk in enumerate(chunks):
+            print(f"    Chunk {idx}/{len(chunks)-1}: processing...")
 
-            video_files = {}
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {
-                    executor.submit(self._process_chunk, i, chunk, image_url, prompt): i
-                    for i, chunk in enumerate(chunks)
-                }
+            _, video_data = self._process_chunk(idx, chunk, image_url, prompt)
+            video_path = videos_dir / f"chunk_{idx:03d}.mp4"
+            with open(video_path, "wb") as f:
+                f.write(video_data)
+            video_files[idx] = str(video_path)
+            print(f"    Chunk {idx}: done")
 
-                for future in as_completed(futures):
-                    idx, video_data = future.result()
-                    video_path = videos_dir / f"video_{idx:03d}.mp4"
-                    with open(video_path, "wb") as f:
-                        f.write(video_data)
-                    video_files[idx] = str(video_path)
-                    print(f"      Chunk {idx}: done")
+        concat_list = videos_dir / "concat.txt"
+        with open(concat_list, "w") as f:
+            for i in sorted(video_files.keys()):
+                f.write(f"file '{video_files[i]}'\n")
 
-            concat_list = videos_dir / "concat.txt"
-            with open(concat_list, "w") as f:
-                for i in sorted(video_files.keys()):
-                    f.write(f"file '{video_files[i]}'\n")
-
-            print(f"    Stitching {len(video_files)} segments...")
-            subprocess.run([
-                "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                "-i", str(concat_list), "-c", "copy", str(output_path)
-            ], capture_output=True)
+        print(f"    Stitching {len(video_files)} segments...")
+        subprocess.run([
+            "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+            "-i", str(concat_list), "-c", "copy", str(output_path)
+        ], capture_output=True)
 
         return str(output_path)
 
