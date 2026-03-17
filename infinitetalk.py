@@ -14,6 +14,19 @@ CHUNK_DURATION_SEC = 30
 RUNPOD_ENDPOINT = "1zjqgn9h146ci3"
 MAX_CHUNK_DURATION_SEC = 45
 
+EMOTION_PROMPTS = {
+    "default": "A woman hosting a podcast, speaking naturally with a friendly expression",
+    "neutral": "A woman hosting a podcast, speaking naturally with a friendly expression",
+    "excited": "A woman speaking with excitement and energy, eyes wide, animated expression",
+    "passionate": "A woman speaking passionately and intensely, emphatic gestures, determined look",
+    "confused": "A woman looking slightly confused and puzzled while speaking, furrowed brow",
+    "angry": "A woman speaking with frustration and intensity, stern expression",
+    "sad": "A woman speaking with a somber, reflective expression",
+    "happy": "A woman speaking with joy, bright smile, warm expression",
+    "surprised": "A woman speaking with surprise, raised eyebrows, wide eyes",
+    "calm": "A woman speaking calmly and thoughtfully, relaxed expression",
+}
+
 
 @dataclass
 class CastMember:
@@ -279,6 +292,7 @@ class InfiniteTalkGenerator:
         output_path: str,
         prompt: str = "A person speaking naturally",
         voice_segments: list[str] = None,
+        segment_emotions: list[str] = None,
     ) -> str:
         if not self.available:
             raise RuntimeError("RunPod API key not configured")
@@ -329,9 +343,11 @@ class InfiniteTalkGenerator:
         video_files = {}
 
         for idx, chunk in enumerate(chunks):
-            print(f"    Chunk {idx}/{len(chunks)-1}: processing...")
+            emotion = segment_emotions[idx] if segment_emotions and idx < len(segment_emotions) else "default"
+            chunk_prompt = EMOTION_PROMPTS.get(emotion, EMOTION_PROMPTS["default"])
+            print(f"    Chunk {idx}/{len(chunks)-1}: {emotion}...")
 
-            _, video_data = self._process_chunk(idx, chunk, image_url, prompt)
+            _, video_data = self._process_chunk(idx, chunk, image_url, chunk_prompt)
             video_path = videos_dir / f"chunk_{idx:03d}.mp4"
             with open(video_path, "wb") as f:
                 f.write(video_data)

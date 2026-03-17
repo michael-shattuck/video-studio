@@ -475,6 +475,7 @@ class TalkingHeadManager:
         audio_path: str,
         output_path: str,
         voice_segments: list[str] = None,
+        segment_emotions: list[str] = None,
         **kwargs,
     ) -> str:
         backend = self.get_backend()
@@ -498,7 +499,7 @@ class TalkingHeadManager:
                 img = cast_member.image_path
             else:
                 img = CAST["rachel"].image_path
-            return self.infinitetalk.generate(img, audio_path, output_path, prompt=cast_member.prompt, voice_segments=voice_segments)
+            return self.infinitetalk.generate(img, audio_path, output_path, prompt=cast_member.prompt, voice_segments=voice_segments, segment_emotions=segment_emotions)
         elif backend == "azure":
             text = kwargs.pop("text", None)
             segments = kwargs.pop("segments", None)

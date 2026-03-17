@@ -198,56 +198,44 @@ class VideoAssembler:
         overlay_style: str = "pip",
     ) -> str:
         base = VideoFileClip(base_video_path)
+        base = self._fit_clip(base)
         overlay_clips = []
 
-        for seg in segment_images:
-            image_path = seg.get("image_path")
-            start_time = seg.get("start", 0)
-            duration = seg.get("duration", 5)
+        chunks_dir = Path(base_video_path).parent / "video_chunks"
+        seam_times = []
+        if chunks_dir.exists():
+            chunk_files = sorted(chunks_dir.glob("chunk_*.mp4"))
+            cumulative = 0.0
+            for chunk_file in chunk_files[:-1]:
+                chunk_clip = VideoFileClip(str(chunk_file))
+                cumulative += chunk_clip.duration
+                seam_times.append(cumulative)
+                chunk_clip.close()
+            print(f"      Found {len(seam_times)} seams at: {[f'{t:.1f}s' for t in seam_times]}")
 
-            if not image_path or not Path(image_path).exists():
+        image_paths = [seg.get("image_path") for seg in segment_images if seg.get("image_path") and Path(seg.get("image_path")).exists()]
+
+        for i, seam_time in enumerate(seam_times):
+            img_path = image_paths[i % len(image_paths)] if image_paths else None
+            if not img_path:
                 continue
 
-            img = ImageClip(image_path)
-
-            if overlay_style == "pip":
-                pip_width = int(self.config.width * 0.35)
-                img = img.resized(width=pip_width)
-                margin = 30
-                overlay_duration = min(duration - 1, duration * 0.8)
-                img = img.with_duration(overlay_duration)
-                img = img.with_effects([vfx.CrossFadeIn(0.3), vfx.CrossFadeOut(0.3)])
-                img = img.with_start(start_time + 0.5)
-                img = img.with_position((self.config.width - pip_width - margin, margin))
-
-            elif overlay_style == "cutaway":
-                img = self._fit_clip(img)
-                cutaway_duration = min(2.5, duration * 0.4)
-                img = img.with_duration(cutaway_duration)
-                img = img.with_effects([vfx.CrossFadeIn(0.2), vfx.CrossFadeOut(0.2)])
-                img = img.with_start(start_time + duration * 0.3)
-
-            elif overlay_style == "split":
-                half_width = self.config.width // 2
-                img = img.resized(width=half_width)
-                img_height = int(half_width * img.h / img.w)
-                y_pos = (self.config.height - img_height) // 2
-                img = img.with_duration(duration)
-                img = img.with_start(start_time)
-                img = img.with_position((half_width, y_pos))
-
-            elif overlay_style == "kenburns":
-                img = self._fit_clip(img)
-                img = img.with_duration(duration)
-                img = img.resized(lambda t: 1 + 0.03 * t)
-                img = img.with_effects([vfx.CrossFadeIn(0.4), vfx.CrossFadeOut(0.4)])
-                img = img.with_start(start_time)
-                img = img.with_position("center")
-
+            img = ImageClip(img_path)
+            img = self._fit_clip(img)
+            fade_duration = 0.5
+            cutaway_duration = 3.0
+            cutaway_start = seam_time - 1.5
+            img = img.with_duration(cutaway_duration)
+            img = img.with_effects([vfx.CrossFadeIn(fade_duration), vfx.CrossFadeOut(fade_duration)])
+            img = img.with_start(max(0, cutaway_start))
+            img = img.with_position("center")
             overlay_clips.append(img)
 
         if overlay_clips:
-            final = CompositeVideoClip([base] + overlay_clips)
+            final = CompositeVideoClip(
+                [base] + overlay_clips,
+                size=(self.config.width, self.config.height)
+            )
         else:
             final = base
 
@@ -271,50 +259,79 @@ class VideoAssembler:
         self,
         text: str,
         background_path: str = None,
-        output_path: str = None
+        output_path: str = None,
+        project_dir: str = None,
     ) -> str:
+        from PIL import Image, ImageDraw, ImageFont, ImageEnhance
+
         if output_path is None:
             output_path = str(Path(config.output_dir) / "thumbnail.png")
 
-        if background_path and Path(background_path).exists():
-            if background_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
-                bg_clip = ImageClip(background_path).with_duration(1)
+        width, height = self.config.width, self.config.height
+
+        podcast_logo_path = Path(config.assets_dir) / "deep_dive_logo.png"
+        if podcast_logo_path.exists():
+            bg = Image.open(podcast_logo_path).convert("RGB")
+            bg_ratio = bg.width / bg.height
+            target_ratio = width / height
+            if bg_ratio > target_ratio:
+                new_width = int(bg.height * target_ratio)
+                left = (bg.width - new_width) // 2
+                bg = bg.crop((left, 0, left + new_width, bg.height))
             else:
-                bg = VideoFileClip(background_path).get_frame(0)
-                bg_clip = ImageClip(bg).with_duration(1)
-            bg_clip = self._fit_clip(bg_clip)
+                new_height = int(bg.width / target_ratio)
+                top = (bg.height - new_height) // 2
+                bg = bg.crop((0, top, bg.width, top + new_height))
+            bg = bg.resize((width, height), Image.LANCZOS)
+            bg = ImageEnhance.Brightness(bg).enhance(0.7)
         else:
-            bg_clip = ColorClip(
-                size=(self.config.width, self.config.height),
-                color=(20, 20, 40),
-                duration=1
-            )
+            bg = Image.new("RGB", (width, height), (15, 25, 45))
 
-        words = text.upper().split()
-        if len(words) > 4:
-            mid = len(words) // 2
-            text = " ".join(words[:mid]) + "\n" + " ".join(words[mid:])
-        else:
-            text = text.upper()
+        gradient = Image.new("RGBA", (width, height // 2), (0, 0, 0, 0))
+        draw_grad = ImageDraw.Draw(gradient)
+        for y in range(height // 2):
+            alpha = int(200 * (y / (height // 2)))
+            draw_grad.line([(0, y), (width, y)], fill=(0, 0, 0, alpha))
+        bg.paste(gradient, (0, height // 2), gradient)
 
-        font_size = 100 if len(text) < 20 else 80 if len(text) < 30 else 60
+        draw = ImageDraw.Draw(bg)
 
-        txt = TextClip(
-            text=text,
-            font_size=font_size,
-            color="yellow",
-            font=self.config.font,
-            stroke_color="black",
-            stroke_width=5,
-            method="caption",
-            size=(self.config.width - 200, None),
-        )
-        txt = txt.with_position("center")
+        try:
+            topic_font = ImageFont.truetype("/System/Library/Fonts/Supplemental/Impact.ttf", 120)
+        except:
+            topic_font = ImageFont.load_default()
 
-        composite = CompositeVideoClip([bg_clip, txt])
-        composite.save_frame(output_path, t=0)
+        topic_text = text.upper()
+        max_width = width - 80
+        words = topic_text.split()
+        lines = []
+        current_line = []
 
-        bg_clip.close()
-        composite.close()
+        for word in words:
+            test_line = " ".join(current_line + [word])
+            bbox = draw.textbbox((0, 0), test_line, font=topic_font)
+            if bbox[2] - bbox[0] <= max_width:
+                current_line.append(word)
+            else:
+                if current_line:
+                    lines.append(" ".join(current_line))
+                current_line = [word]
+        if current_line:
+            lines.append(" ".join(current_line))
 
+        line_height = 130
+        total_text_height = len(lines) * line_height
+        start_y = height - total_text_height - 60
+
+        for i, line in enumerate(lines):
+            bbox = draw.textbbox((0, 0), line, font=topic_font)
+            line_width = bbox[2] - bbox[0]
+            x = (width - line_width) // 2
+            y = start_y + i * line_height
+
+            for ox, oy in [(5, 5), (-5, -5), (5, -5), (-5, 5), (0, 6), (6, 0)]:
+                draw.text((x + ox, y + oy), line, font=topic_font, fill=(0, 0, 0))
+            draw.text((x, y), line, font=topic_font, fill=(255, 255, 255))
+
+        bg.save(output_path, "PNG", quality=95)
         return output_path

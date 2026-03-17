@@ -423,19 +423,40 @@ class StockFootageManager:
         images = {}
 
         if self.use_dalle:
-            print(f"      Using DALL-E for {len(visual_cues)} visual cues...")
-            for i, cue in enumerate(visual_cues):
-                print(f"      [{i+1}/{len(visual_cues)}] {cue[:60]}...")
-                path = await self.dalle_gen.generate(cue, vertical=self.vertical)
-                if path:
-                    images[cue] = [path]
-                    self.used_assets.append({
-                        "id": hashlib.md5(cue.encode()).hexdigest()[:12],
-                        "source": "dalle",
-                        "type": "image",
-                    })
+            existing_count = 0
+            to_generate = []
+            for cue in visual_cues:
+                prompt_hash = hashlib.md5(cue.encode()).hexdigest()[:12]
+                suffix = "_v" if self.vertical else ""
+                expected_path = self.dalle_gen.output_dir / f"dalle_{prompt_hash}{suffix}.png"
+                alt_suffix = "" if self.vertical else "_v"
+                alt_path = self.dalle_gen.output_dir / f"dalle_{prompt_hash}{alt_suffix}.png"
+                if expected_path.exists():
+                    images[cue] = [str(expected_path)]
+                    existing_count += 1
+                elif alt_path.exists():
+                    images[cue] = [str(alt_path)]
+                    existing_count += 1
                 else:
-                    images[cue] = []
+                    to_generate.append(cue)
+
+            if existing_count > 0:
+                print(f"      Found {existing_count} existing DALL-E images")
+
+            if to_generate:
+                print(f"      Generating {len(to_generate)} DALL-E images...")
+                for i, cue in enumerate(to_generate):
+                    print(f"      [{i+1}/{len(to_generate)}] {cue[:60]}...")
+                    path = await self.dalle_gen.generate(cue, vertical=self.vertical)
+                    if path:
+                        images[cue] = [path]
+                        self.used_assets.append({
+                            "id": hashlib.md5(cue.encode()).hexdigest()[:12],
+                            "source": "dalle",
+                            "type": "image",
+                        })
+                    else:
+                        images[cue] = []
             return images
 
         for cue in visual_cues:

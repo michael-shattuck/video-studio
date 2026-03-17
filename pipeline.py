@@ -20,6 +20,7 @@ class VideoProject:
     audio_path: str = ""
     footage_paths: list[str] = None
     voice_segments: list[str] = None
+    segment_emotions: list[str] = None
     video_path: str = ""
     thumbnail_path: str = ""
     created_at: str = ""
@@ -29,6 +30,8 @@ class VideoProject:
             self.footage_paths = []
         if self.voice_segments is None:
             self.voice_segments = []
+        if self.segment_emotions is None:
+            self.segment_emotions = []
         if not self.created_at:
             self.created_at = datetime.utcnow().isoformat()
 
@@ -286,19 +289,29 @@ class VideoPipeline:
             segment_dir = project_dir / "voice_segments"
             if segment_dir.exists():
                 project.voice_segments = sorted([str(p) for p in segment_dir.glob("*.mp3")])
+            if manifest.data.get("segment_emotions"):
+                project.segment_emotions = manifest.data["segment_emotions"]
         elif use_azure_avatar:
             print(f"[2/6] Skipping TTS (Azure Avatar handles voice + video together)")
         else:
             print(f"[2/6] Generating voiceover...")
 
         is_philofab = self.video_style in ("turboencabulator", "philofabulator")
-        if not manifest.step_done("voice") and not use_azure_avatar and is_philofab:
+        if not manifest.step_done("voice") and not use_azure_avatar and self.turbo_voice_gen and is_philofab:
+            import re
             engine_name = self.tts_engine.upper()
             print(f"      Using {engine_name} TTS with emotional progression...")
             segments = [{"text": project.script.hook}]
             for seg in project.script.segments:
                 segments.append({"text": seg.text})
             segments.append({"text": project.script.outro})
+
+            emotions = []
+            for seg in segments:
+                text = seg["text"]
+                match = re.match(r'^\[(\w+)\]\s*', text)
+                emotions.append(match.group(1).lower() if match else "default")
+            project.segment_emotions = emotions
 
             segment_dir = project_dir / "voice_segments"
 
@@ -315,6 +328,7 @@ class VideoPipeline:
             manifest.mark_step("voice")
             for seg_path in segment_paths:
                 manifest.add_file("voice_segments", seg_path)
+            manifest.data["segment_emotions"] = emotions
         elif not manifest.step_done("voice") and not use_azure_avatar:
             narration = project.script.full_narration
             await self.voice_gen.generate(narration, voice_path)
@@ -348,16 +362,23 @@ class VideoPipeline:
             project.audio_path = voice_path
             print(f"[3/6] Skipping music (no API key or disabled)")
 
-        talking_head_video = None
+        talking_head_video = str(project_dir / "talking_head.mp4")
         avatar_path = avatar_image or self.avatar_image
         if not avatar_path:
             default_avatar = Path(config.assets_dir) / "rachel_avatar.png"
             if default_avatar.exists():
                 avatar_path = str(default_avatar)
-        if use_talking_head and self.talking_head_mgr:
+
+        talking_head_loaded = False
+        if Path(talking_head_video).exists():
+            print(f"[4/7] Talking head already exists, loading...")
+            project.footage_paths = [talking_head_video]
+            project.video_path = talking_head_video
+            manifest.mark_step("talking_head")
+            talking_head_loaded = True
+        elif use_talking_head and self.talking_head_mgr:
             if self.talking_head_mgr.available:
                 print(f"[4/7] Generating talking head video...")
-                talking_head_video = str(project_dir / "talking_head.mp4")
                 backend = self.talking_head_mgr.get_backend()
                 print(f"      Using backend: {backend}")
 
@@ -375,6 +396,7 @@ class VideoPipeline:
                             project.audio_path,
                             talking_head_video,
                             voice_segments=project.voice_segments if project.voice_segments else None,
+                            segment_emotions=project.segment_emotions if project.segment_emotions else None,
                         )
                         if not Path(talking_head_video).exists():
                             print(f"      Talking head generation failed - file not created")
@@ -389,44 +411,8 @@ class VideoPipeline:
                 if use_talking_head and talking_head_video and Path(talking_head_video).exists():
                     project.footage_paths = [talking_head_video]
                     project.video_path = talking_head_video
+                    manifest.mark_step("talking_head")
                     print(f"      Talking head generated: {talking_head_video}")
-
-                    if self.footage_mgr.use_dalle:
-                        print(f"[5/7] Generating DALL-E images for overlays...")
-                        visual_cues = [seg.visual_cue for seg in project.script.segments if seg.visual_cue]
-                        images_map = await self.footage_mgr.get_images_for_cues(visual_cues)
-
-                        from moviepy import AudioFileClip
-                        audio_clip = AudioFileClip(project.audio_path)
-                        total_duration = audio_clip.duration
-                        audio_clip.close()
-
-                        segment_images = []
-                        num_segments = len(project.script.segments)
-                        segment_duration = total_duration / num_segments if num_segments > 0 else 5
-
-                        for i, seg in enumerate(project.script.segments):
-                            if seg.visual_cue and seg.visual_cue in images_map:
-                                paths = images_map[seg.visual_cue]
-                                if paths:
-                                    segment_images.append({
-                                        "image_path": paths[0],
-                                        "start": i * segment_duration,
-                                        "duration": segment_duration,
-                                    })
-
-                        if segment_images and self.overlay_style != "none":
-                            print(f"[6/7] Compositing {len(segment_images)} image overlays ({self.overlay_style})...")
-                            composite_path = str(project_dir / "video.mp4")
-                            self.assembler.composite_with_overlays(
-                                talking_head_video,
-                                segment_images,
-                                composite_path,
-                                overlay_style=self.overlay_style,
-                            )
-                            project.video_path = composite_path
-                            project.footage_paths = [composite_path]
-                            print(f"      Final video: {composite_path}")
             else:
                 print(f"[4/7] Talking head requested but no backend available")
                 print(f"      Options:")
@@ -434,6 +420,49 @@ class VideoPipeline:
                 print(f"      - MEMO: https://github.com/memoavatar/memo (requires GPU)")
                 print(f"      - Hallo3: https://github.com/fudan-generative-vision/hallo3 (requires GPU)")
                 use_talking_head = False
+
+        if (talking_head_loaded or use_talking_head) and Path(talking_head_video).exists() and self.footage_mgr.use_dalle:
+            composite_path = str(project_dir / "video.mp4")
+            if Path(composite_path).exists():
+                print(f"[5/7] Composite video already exists, loading...")
+                project.video_path = composite_path
+                project.footage_paths = [composite_path]
+            else:
+                print(f"[5/7] Generating DALL-E images for overlays...")
+                visual_cues = [seg.visual_cue for seg in project.script.segments if seg.visual_cue]
+                images_map = await self.footage_mgr.get_images_for_cues(visual_cues)
+
+                from moviepy import AudioFileClip
+                audio_clip = AudioFileClip(project.audio_path)
+                total_duration = audio_clip.duration
+                audio_clip.close()
+
+                segment_images = []
+                num_segments = len(project.script.segments)
+                segment_duration = total_duration / num_segments if num_segments > 0 else 5
+
+                for i, seg in enumerate(project.script.segments):
+                    if seg.visual_cue and seg.visual_cue in images_map:
+                        paths = images_map[seg.visual_cue]
+                        if paths:
+                            segment_images.append({
+                                "image_path": paths[0],
+                                "start": i * segment_duration,
+                                "duration": segment_duration,
+                            })
+
+                if segment_images and self.overlay_style != "none":
+                    print(f"[6/7] Compositing {len(segment_images)} image overlays ({self.overlay_style})...")
+                    self.assembler.composite_with_overlays(
+                        talking_head_video,
+                        segment_images,
+                        composite_path,
+                        overlay_style=self.overlay_style,
+                    )
+                    project.video_path = composite_path
+                    project.footage_paths = [composite_path]
+                    manifest.mark_step("composite")
+                    print(f"      Final video: {composite_path}")
 
         if not use_talking_head and not skip_footage:
             visual_cues = [seg.visual_cue for seg in project.script.segments if seg.visual_cue]
@@ -484,15 +513,20 @@ class VideoPipeline:
             )
             print(f"      Video saved: {project.video_path}")
 
-        print(f"[6/6] Creating thumbnail...")
         thumbnail_path = str(project_dir / "thumbnail.png")
-        bg_path = project.footage_paths[0] if project.footage_paths else None
-        project.thumbnail_path = self.assembler.create_thumbnail(
-            project.script.thumbnail_text or topic,
-            bg_path,
-            thumbnail_path
-        )
-        print(f"      Thumbnail saved: {project.thumbnail_path}")
+        if Path(thumbnail_path).exists():
+            print(f"[6/6] Thumbnail already exists, loading...")
+            project.thumbnail_path = thumbnail_path
+        else:
+            print(f"[6/6] Creating thumbnail...")
+            bg_path = project.footage_paths[0] if project.footage_paths else None
+            project.thumbnail_path = self.assembler.create_thumbnail(
+                project.script.thumbnail_text or topic,
+                bg_path,
+                thumbnail_path,
+                project_dir=str(project_dir),
+            )
+            print(f"      Thumbnail saved: {project.thumbnail_path}")
 
         attribution = self.footage_mgr.get_attribution_text()
         attribution_links = self.footage_mgr.get_attribution_links()
